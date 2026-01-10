@@ -2,73 +2,88 @@ import streamlit as st
 import time
 import pandas as pd
 from datetime import datetime, timedelta
-# Selenium関連のインポート（既存通り）
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select, WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
+# Selenium関連は既存のものをそのまま使用
 
-# --- Secrets設定（既存通り） ---
+# --- 設定読み込み ---
 TEAM_PASSWORD = st.secrets["team_password"]
 BOOKING_PASSWORD = st.secrets["booking_password"]
 USER_PROFILE = st.secrets["user_profile"]
 
 TARGET_DEEL_FACILITIES = ["Sporthal Deel 1", "Sporthal Deel 2"]
-TARGET_ACTIVITY_VALUE = "53" 
 
-# ページ設定
 st.set_page_config(page_title="High Ballers 予約", page_icon="⚽", layout="centered")
 
-# --- UIレイヤー 1: 認証 ---
+# --- UIレイヤー ---
 st.markdown("### ⚽ High Ballers 予約システム")
 password = st.text_input("認証パスワード", type="password")
 
 if password == TEAM_PASSWORD:
     st.success("認証OK")
 
-    # --- UIレイヤー 2: 日付リスト作成（全モード共通） ---
-    if 'manual_targets' not in st.session_state: st.session_state.manual_targets = []
+    # --- 1. あなたのイメージ通りの検索モード選択 ---
+    st.markdown("##### 🔍 検索モードを選択")
+    mode = st.radio(
+        "目的に合わせて選択してください",
+        [
+            "Deel 日付指定 (複数可)", 
+            "Deel 監視 (火木日)", 
+            "Deel 平日夜一括", 
+            "全施設 リサーチ", 
+            "全施設 日付指定 (複数可)"
+        ],
+        horizontal=False # スマホで見やすいよう縦並びに
+    )
 
-    with st.container():
-        st.markdown("##### 📅 1. 調べたい日付をリストに追加")
-        col_p1, col_p2 = st.columns([1, 1])
-        with col_p1:
-            p_opts = {"Avond (夜)": "3", "Ochtend (朝)": "1", "Middag (昼)": "2"}
-            p_label = st.selectbox("時間帯を選択", list(p_opts.keys()))
-        with col_p2:
-            # 日付選択（変更されると自動で下のリストに追加されるコールバック風処理）
-            target_date = st.date_input("日付を選択", datetime.today())
-            if st.button("追加する"):
-                st.session_state.manual_targets.append({
-                    "date": target_date, 
-                    "part": p_opts[p_label], 
-                    "display": f"{target_date.strftime('%m/%d')}({p_label})"
-                })
-
+    # --- 2. 日付指定が必要なモードの場合のみカレンダーを表示 ---
+    use_manual_date = "日付指定" in mode
+    
+    if use_manual_date:
+        if 'manual_targets' not in st.session_state: st.session_state.manual_targets = []
+        st.markdown("---")
+        st.markdown("##### 📅 調べたい日付をリストに追加")
+        c1, c2 = st.columns(2)
+        with c1: p_label = st.selectbox("時間帯", ["Avond (夜)", "Ochtend (朝)", "Middag (昼)"])
+        with c2: 
+            target_date = st.date_input("日付を選択")
+            if st.button("リストに追加"):
+                p_val = {"Avond (夜)": "3", "Ochtend (朝)": "1", "Middag (昼)": "2"}[p_label]
+                st.session_state.manual_targets.append({"date": target_date, "part": p_val, "disp": f"{target_date.strftime('%m/%d')}({p_label})"})
+        
         if st.session_state.manual_targets:
-            df_targets = pd.DataFrame(st.session_state.manual_targets)
-            st.caption("現在の検索リスト:")
-            st.table(df_targets[["display"]])
-            if st.button("リストを空にする"):
+            st.table(pd.DataFrame(st.session_state.manual_targets)[["disp"]])
+            if st.button("リストをクリア"): 
                 st.session_state.manual_targets = []
                 st.rerun()
 
-    # --- UIレイヤー 3: モード選択と検索 ---
+    # --- 3. 検索実行ボタン ---
     st.markdown("---")
-    st.markdown("##### 🔍 2. 検索モードを選択")
-    mode = st.radio("モード選択", 
-        ["指定日のみ (Deel限定)", "自動監視 (火木日・Deel)", "全施設リサーチ (指定日優先)"], 
-        horizontal=True
-    )
+    if st.button("🚀 この内容で空きを検索する", type="primary", use_container_width=True):
+        targets = []
+        today = datetime.now().date()
+        is_all_facilities = "全施設" in mode
+        
+        # モードに応じた検索ターゲットの組み立て
+        if use_manual_date:
+            targets = st.session_state.manual_targets
+        elif "監視" in mode or "リサーチ" in mode:
+            rules = [{"ws":[1,3],"p":"3"},{"ws":[6],"p":"1"}]
+            for i in range(60):
+                d = today + timedelta(days=i)
+                for r in rules:
+                    if d.weekday() in r['ws']: targets.append({"date":d, "part":r['p'], "disp":d.strftime('%m/%d')})
+        elif "平日夜" in mode:
+            for i in range(60):
+                d = today + timedelta(days=i)
+                if d.weekday() < 5: targets.append({"date":d, "part":"3", "disp":d.strftime('%m/%d')})
 
-    if st.button("🚀 検索スタート", type="primary", use_container_width=True):
-        # ここにリトライ機能・高速検索ロジックを統合（既存の検索関数を呼び出し）
-        # ... (中略：以前の検索ロジック) ...
-        st.info("検索中です。しばらくお待ちください...")
-
-    # --- UIレイヤー 4: 結果選択と予約実行 ---
-    # ... (中略：チェックボックス付き結果リスト) ...
+        # --- 検索ロジック (driverの起動〜結果取得) ---
+        if not targets:
+            st.error("日付が指定されていません。")
+        else:
+            # ここに検索処理（search_on_site）を記述
+            # is_all_facilities が True なら Deel 以外も結果に追加、False なら Deel のみ抽出
+            st.info("検索を開始します...")
+            # ... (中略) ...
 
 else:
-    st.info("パスワードを入力して開始してください。")
+    st.info("パスワードを入力してください。")
