@@ -130,6 +130,7 @@ if password != TEAM_PASSWORD:
 # =====================================================
 # モード
 # =====================================================
+st.error("DEBUG: 新しい mode_map が読み込まれています")
 mode_map = {
     "1. Deel日付指定 (複数可)": "1",
     "2. Deel監視 (火木日)": "2",
@@ -231,3 +232,4 @@ if "found" in st.session_state and st.session_state.found:
                 book(driver, s, run == "テスト")
             driver.quit()
             st.success("完了しました")
+
