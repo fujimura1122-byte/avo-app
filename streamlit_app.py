@@ -1,10 +1,8 @@
 import streamlit as st
 import time
-import smtplib
-import os
 import pandas as pd
 import re
-from email.mime.text import MIMEText
+import os
 from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -20,20 +18,15 @@ try:
     TEAM_PASSWORD = st.secrets["team_password"]
     BOOKING_PASSWORD = st.secrets["booking_password"]
     USER_PROFILE = st.secrets["user_profile"]
-except FileNotFoundError:
-    st.error("⚠️ Secretsファイルが見つかりません。")
-    st.stop()
-except KeyError as e:
-    st.error(f"⚠️ Secretsの設定が不足しています: {e}")
+except Exception:
+    st.error("⚠️ Secrets Error")
     st.stop()
 
-# ★ターゲット施設 & 設定
 TARGET_DEEL_FACILITIES = ["Sporthal Deel 1", "Sporthal Deel 2"]
 HIGHLIGHT_TARGET_NAME = "De Scheg Sporthal Deel"
 TARGET_ACTIVITY_VALUE = "53" 
 LOGO_IMAGE = "High Ballers.png"
 
-# ページ設定
 st.set_page_config(
     page_title="High Ballers AI", 
     page_icon="⚽",
@@ -42,100 +35,117 @@ st.set_page_config(
 )
 
 # ==========================================
-# 🎨 UIデザイン (高級感・目に優しいダーク・モバイルファースト)
+# 🎨 UIデザイン (Waymo風: シンプル・クリーン・斬新)
 # ==========================================
 st.markdown("""
     <style>
-    /* --- ベースの配色: 目に優しいディープネイビー --- */
+    /* --- ベース設定: クリーンなホワイト --- */
     .stApp {
-        background: radial-gradient(circle at 50% 10%, #1a202c 0%, #0d1117 100%);
-        color: #E2E8F0;
+        background-color: #FFFFFF;
+        color: #1F2937;
         font-family: 'Helvetica Neue', 'Arial', sans-serif;
     }
-    
-    /* --- ヘッダーテキスト --- */
+
+    /* --- ヘッダーテキスト: シンプルで力強い --- */
     .header-text {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 1.8rem;
+        font-size: 2.0rem;
         font-weight: 800;
-        letter-spacing: 0.5px;
-        text-shadow: 0 2px 10px rgba(118, 75, 162, 0.3);
+        color: #111827;
+        letter-spacing: -0.5px;
+        margin-bottom: 0.5rem;
+    }
+    .sub-header {
+        font-size: 0.9rem;
+        color: #6B7280;
+        font-weight: 500;
+        margin-bottom: 2rem;
     }
 
-    /* --- コンテナ・カードデザイン (グラスモーフィズム) --- */
-    /* 入力エリアやリストを見やすくするために背景を少し明るくする */
-    div[role="radiogroup"], .stDataEditor, div[data-testid="stExpander"] {
-        background-color: rgba(30, 41, 59, 0.7); /* 半透明のネイビー */
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 16px;
-        padding: 15px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    /* --- カードデザイン: 大きな角丸とソフトな影 --- */
+    div[role="radiogroup"], .stDataEditor, div[data-testid="stForm"] {
+        background-color: #F3F4F6; /* 薄いグレー */
+        border: none;
+        border-radius: 24px; /* Waymoのような大きな丸み */
+        padding: 24px;
+        box-shadow: none; /* フラットに */
+        margin-bottom: 20px;
     }
-
-    /* --- 入力フィールド (はっきり見えるように) --- */
+    
+    /* --- 入力フィールド: 浮かび上がるような白 --- */
     .stTextInput input, .stSelectbox div[data-baseweb="select"], .stDateInput input {
-        background-color: #2D3748 !important; /* 明るめのグレーネイビー */
-        color: #F7FAFC !important;
-        border: 1px solid #4A5568 !important;
-        border-radius: 12px !important;
-        padding: 10px !important;
+        background-color: #FFFFFF !important;
+        color: #1F2937 !important;
+        border: 1px solid #E5E7EB !important;
+        border-radius: 16px !important;
+        padding: 12px 16px !important;
         font-size: 1rem !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     }
-    /* 入力欄のラベルを見やすく */
-    label {
-        color: #A0AEC0 !important;
-        font-weight: 600 !important;
-        font-size: 0.9rem !important;
-    }
-
-    /* --- ボタン (エナジーオレンジ: グラデーションで立体感) --- */
+    
+    /* --- ボタン: ピル型（カプセル）のエレクトリックブルー --- */
     .stButton > button {
         width: 100%;
-        background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%);
-        color: white;
+        background-color: #2563EB; /* 鮮やかなブルー */
+        color: white !important;
         border: none;
-        border-radius: 12px;
-        padding: 0.7rem 1rem;
-        font-weight: bold;
-        font-size: 1.1rem;
-        box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
-        transition: transform 0.2s, box-shadow 0.2s;
+        border-radius: 9999px; /* 完全な丸み（ピル型） */
+        padding: 14px 28px;
+        font-weight: 700;
+        font-size: 1rem;
+        letter-spacing: 0.5px;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
     }
     .stButton > button:hover {
+        background-color: #1D4ED8;
         transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(255, 107, 107, 0.6);
-        color: white !important;
+        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
     }
     .stButton > button:active {
         transform: scale(0.98);
     }
-    
-    /* --- チェックボックス --- */
-    .stCheckbox label {
-        color: #E2E8F0 !important;
+
+    /* --- ラジオボタンのラベル --- */
+    div[role="radiogroup"] label {
+        color: #374151 !important;
+        font-weight: 600;
+        background-color: white;
+        padding: 10px 15px;
+        border-radius: 12px;
+        margin-bottom: 8px;
+        border: 1px solid #F3F4F6;
+        transition: all 0.2s;
+    }
+    div[role="radiogroup"] label:hover {
+        border-color: #2563EB;
+    }
+
+    /* --- データエディタ (リスト) --- */
+    div[data-testid="stDataEditor"] {
+        background-color: #FFFFFF;
+        border: 1px solid #E5E7EB;
+        border-radius: 16px;
     }
 
     /* --- トースト通知 --- */
     div[data-testid="stToast"] {
-        background-color: #2D3748;
-        color: white;
-        border-radius: 12px;
-        border-left: 6px solid #FF8E53;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        background-color: #FFFFFF;
+        color: #1F2937;
+        border-radius: 16px;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        border: 1px solid #E5E7EB;
     }
     
-    /* --- データエディタの文字色調整 --- */
-    div[data-testid="stDataEditor"] {
-        color: #E2E8F0;
+    /* --- アイコン強調 --- */
+    .highlight-icon {
+        font-size: 1.2rem;
+        margin-right: 5px;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 🏎️ ロジック関数 (高速化設定済み)
+# 🏎️ ロジック関数 (高速化維持)
 # ==========================================
 
 NL_MONTHS = {
@@ -152,13 +162,12 @@ def create_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # ステルス設定
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     
-    # ★高速化: 画像を読み込まない
+    # 画像読み込みブロック
     prefs = {"profile.managed_default_content_settings.images": 2}
     options.add_experimental_option("prefs", prefs)
     
@@ -182,8 +191,8 @@ def take_error_snapshot(driver, container, error_message):
         timestamp = datetime.now().strftime("%H%M%S")
         filename = f"error_{timestamp}.png"
         driver.save_screenshot(filename)
-        with container.expander("📸 エラー画面 (デバッグ用)", expanded=True):
-            st.error(f"エラー内容: {error_message}")
+        with container.expander("📸 Error Snapshot", expanded=True):
+            st.error(f"Error: {error_message}")
             st.image(filename)
     except: pass
 
@@ -200,7 +209,7 @@ def extract_price_estimate(text):
         return "-"
 
 # ---------------------------------------------------------
-# コールバック (日付追加)
+# コールバック
 # ---------------------------------------------------------
 def add_manual_target():
     if 'picker_date' in st.session_state and 'picker_part_label' in st.session_state:
@@ -223,9 +232,9 @@ def add_manual_target():
         
         if not is_duplicate:
             st.session_state.manual_targets.append(new_item)
-            st.toast(f"✅ 追加: {get_japanese_date_str(date_val)}")
+            st.toast(f"Added: {get_japanese_date_str(date_val)}")
         else:
-            st.toast("⚠️ リストに追加済みです")
+            st.toast("Already in list")
 
 # ---------------------------------------------------------
 # 予約実行処理
@@ -235,7 +244,7 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
     target_time_text = get_target_time_text(date_obj)
     max_retries = 3
     
-    container.info(f"🚀 予約プロセス開始: {date_str} {facility_name}")
+    container.info(f"🚀 Starting Booking: {date_str} {facility_name}")
     
     for attempt in range(1, max_retries + 1):
         try:
@@ -251,7 +260,7 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                 time.sleep(0.5) 
                 found_element.click()
             else:
-                raise Exception("施設が見つかりません")
+                raise Exception("Facility not found")
 
             try:
                 reserve_btn = WebDriverWait(driver, 8).until(
@@ -259,9 +268,9 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                 )
                 reserve_btn.click()
             except:
-                raise Exception("予約ボタンが見つかりません")
+                raise Exception("Reserve button missing")
 
-            container.write("  -> 📝 情報入力中...")
+            container.write("  -> 📝 Inputting details...")
             WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.ID, "selectedTimeLength")))
             Select(driver.find_element(By.ID, "selectedTimeLength")).select_by_value("2")
             time.sleep(1.5)
@@ -277,17 +286,17 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                     break
             
             if not found_slot:
-                container.warning(f"  -> ⚠️ {target_time_text}〜の枠が既に埋まっています")
+                container.warning(f"  -> ⚠️ Slot {target_time_text} is taken")
                 return False 
             
-            container.write(f"  -> 🕒 枠確保: {selected_text}")
+            container.write(f"  -> 🕒 Secured: {selected_text}")
             Select(driver.find_element(By.ID, "SelectedActivity")).select_by_value(TARGET_ACTIVITY_VALUE)
             
             for key, val in USER_PROFILE.items():
                 if key == "HouseNumberAddition" and val == "": continue
                 driver.find_element(By.NAME, key).send_keys(val)
                 
-            exact_price_str = "不明"
+            exact_price_str = "?"
             try:
                 tarief_input = driver.find_element(By.ID, "tarief")
                 raw_val = tarief_input.get_attribute("value")
@@ -299,22 +308,22 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                 driver.execute_script("arguments[0].click();", chk)
 
             if is_dry_run:
-                container.success(f"🛑 【テスト成功】寸前で停止 (金額: €{exact_price_str})")
+                container.success(f"🛑 [TEST MODE] Stopped before confirm. (Price: €{exact_price_str})")
                 return True
             else:
                 driver.find_element(By.ID, "ConfirmButton").click()
                 time.sleep(5)
-                container.success(f"✅ 予約確定！ (金額: €{exact_price_str})")
+                container.success(f"✅ BOOKED! (Price: €{exact_price_str})")
                 return True
 
         except Exception as e:
             if attempt < max_retries:
-                container.warning(f"⚠️ リトライ中 ({attempt}/{max_retries})...")
+                container.warning(f"⚠️ Retry {attempt}/{max_retries}...")
                 time.sleep(2) 
                 driver.back() 
                 time.sleep(1)
             else:
-                container.error(f"❌ 失敗: {e}")
+                container.error(f"❌ Failed: {e}")
                 take_error_snapshot(driver, container, str(e))
                 return False
 
@@ -361,17 +370,18 @@ def search_on_site(driver, date_obj, part_id):
 col_logo, col_title = st.columns([1, 4]) 
 with col_logo:
     if os.path.exists(LOGO_IMAGE):
-        st.image(LOGO_IMAGE, width=70) 
+        st.image(LOGO_IMAGE, width=80) 
     else:
         st.markdown("# ⚽")
 with col_title:
-    st.markdown('<div class="header-text">High Ballers AI Reservation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-text">High Ballers AI</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Automated Reservation System</div>', unsafe_allow_html=True)
 
-password = st.text_input("ACCESS KEY", type="password", placeholder="Enter Password")
+password = st.text_input("ACCESS KEY", type="password")
 
 if password == TEAM_PASSWORD:
-    st.markdown("<br>", unsafe_allow_html=True)
     
+    # モード選択
     mode_map = {
         "1. Deel日付指定 (複数可)": "1",
         "2. Deel監視 (火木日)": "2",
@@ -388,7 +398,7 @@ if password == TEAM_PASSWORD:
     # --- 日付追加エリア ---
     if mode in ["1", "5"]:
         st.markdown("#### 📅 TARGET DATE")
-        c1, c2 = st.columns([1, 1])
+        c1, c2 = st.columns([1, 2])
         with c1:
             part_opts = {"Avond (夜)": "3", "Ochtend (朝)": "1", "Middag (昼)": "2"}
             st.selectbox("TIME", list(part_opts.keys()), key="picker_part_label", label_visibility="collapsed")
@@ -405,21 +415,21 @@ if password == TEAM_PASSWORD:
                 column_config={"削除": st.column_config.CheckboxColumn(width="small")}
             )
             
-            if st.button("🗑️ 選択した日付を削除", use_container_width=True):
+            if st.button("🗑️ Clear Selected Dates", use_container_width=True):
                 keep = edited_df[edited_df["削除"] == False].index
                 st.session_state.manual_targets = [st.session_state.manual_targets[i] for i in keep]
                 st.rerun()
 
     # --- 検索ボタン ---
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🔍 START SEARCHING", type="primary", use_container_width=True):
+    if st.button("🔍 START SEARCH", type="primary", use_container_width=True):
         targets = []
         today = datetime.now().date()
         valid = True
         
         if mode in ["1", "5"]:
             if not st.session_state.manual_targets:
-                st.error("日付を追加してください")
+                st.error("Please add dates first.")
                 valid = False
             else:
                 targets = st.session_state.manual_targets
@@ -446,7 +456,7 @@ if password == TEAM_PASSWORD:
             prog = st.progress(0)
             driver = None
             try:
-                status.info("Connecting to AI Driver...")
+                status.info("Driver Initialized...")
                 driver = create_driver()
                 total = len(targets)
                 
@@ -483,20 +493,20 @@ if password == TEAM_PASSWORD:
                                     })
                             except: continue
                 
-                status.success("Scan Completed!")
+                status.success("Done!")
                 time.sleep(0.5)
                 status.empty()
                 prog.empty()
-                if not st.session_state.found_slots: st.warning("No available slots found.")
+                if not st.session_state.found_slots: st.warning("No slots found.")
             
             except Exception as e:
-                st.error(f"System Error: {e}")
+                st.error(f"Error: {e}")
             finally:
                 if driver: driver.quit()
 
     # --- 結果一覧 & 予約実行 ---
     if st.session_state.found_slots:
-        st.markdown(f"#### ✨ AVAILABLE SLOTS: {len(st.session_state.found_slots)}")
+        st.markdown(f"#### ✨ Available Slots: {len(st.session_state.found_slots)}")
         
         df_found = pd.DataFrame(st.session_state.found_slots)
         df_found["日付"] = df_found["date_obj"].apply(get_japanese_date_str)
@@ -530,24 +540,24 @@ if password == TEAM_PASSWORD:
             if not is_dry:
                 with c_run2:
                     bp = st.text_input("BOOKING PASSWORD", type="password")
-                    bk = st.checkbox("Confirm Execution")
+                    bk = st.checkbox("Confirm Booking")
                     ready = (bp == BOOKING_PASSWORD and bk)
             
             if st.button(f"🚀 BOOK {len(selected_slots)} SLOTS", type="primary", use_container_width=True):
                 if not ready:
-                    st.error("Authentication Failed.")
+                    st.error("Auth Failed")
                 else:
                     logs = []
                     status = st.empty()
                     prog = st.progress(0)
                     driver = None
                     try:
-                        status.info("Initializing Booking Agent...")
+                        status.info("Initializing Agent...")
                         driver = create_driver()
                         total = len(selected_slots)
                         for idx, slot in enumerate(selected_slots):
                             target_fac = slot.get('raw_facility', slot['facility'])
-                            status.markdown(f"**Booking...** `{target_fac}` ({idx+1}/{total})")
+                            status.markdown(f"**Processing...** `{target_fac}` ({idx+1}/{total})")
                             prog.progress((idx + 1) / total)
                             
                             if search_on_site(driver, slot['date_obj'], slot['part_id']):
@@ -558,14 +568,14 @@ if password == TEAM_PASSWORD:
                             else:
                                 logs.append(f"❌ NOT FOUND: {slot['display']}")
                         
-                        status.success("All Operations Finished!")
+                        status.success("Finished!")
                         prog.empty()
                         st.balloons()
-                        st.text_area("EXECUTION LOGS", "\n".join(logs), height=200)
+                        st.text_area("LOGS", "\n".join(logs), height=200)
                     except Exception as e:
                         st.error(f"Error: {e}")
                     finally:
                         if driver: driver.quit()
 
 else:
-    if password: st.error("Invalid Password")
+    if password: st.error("Invalid Key")
