@@ -35,111 +35,125 @@ st.set_page_config(
 )
 
 # ==========================================
-# 🎨 UIデザイン (Waymo風: 日本語版)
+# 🎨 UIデザイン (完全モバイル対応・強制ライトテーマ)
 # ==========================================
 st.markdown("""
     <style>
-    /* --- ベース設定: クリーンなホワイト --- */
+    /* --- 重要: Streamlitのテーマ変数を強制上書き (ダークモード対策) --- */
+    :root {
+        --primary-color: #2563EB;
+        --background-color: #FFFFFF;
+        --secondary-background-color: #F3F4F6;
+        --text-color: #111827;
+        --font: "Helvetica Neue", sans-serif;
+    }
+
+    /* --- アプリ全体の背景と文字色を強制固定 --- */
     .stApp {
-        background-color: #FFFFFF;
-        color: #1F2937;
-        font-family: 'Helvetica Neue', 'Hiragino Kaku Gothic ProN', 'Arial', sans-serif;
+        background-color: #FFFFFF !important;
+        color: #111827 !important;
     }
 
-    /* --- ヘッダーテキスト --- */
-    .header-text {
-        font-size: 2.0rem;
-        font-weight: 800;
-        color: #111827;
-        letter-spacing: -0.5px;
-        margin-bottom: 0.2rem;
-    }
-    .sub-header {
-        font-size: 0.9rem;
-        color: #6B7280;
-        font-weight: 500;
-        margin-bottom: 2rem;
-    }
-
-    /* --- カードデザイン: 大きな角丸 --- */
-    div[role="radiogroup"], .stDataEditor, div[data-testid="stForm"] {
-        background-color: #F3F4F6; /* 薄いグレー */
-        border: none;
-        border-radius: 24px;
-        padding: 24px;
-        box-shadow: none;
+    /* --- ヘッダー周り --- */
+    .header-container {
+        padding: 20px 0;
+        text-align: center;
         margin-bottom: 20px;
     }
-    
-    /* --- 入力フィールド --- */
-    .stTextInput input, .stSelectbox div[data-baseweb="select"], .stDateInput input {
-        background-color: #FFFFFF !important;
-        color: #1F2937 !important;
+    .header-title {
+        font-size: 24px;
+        font-weight: 900;
+        color: #111827;
+        margin: 0;
+        letter-spacing: -0.5px;
+    }
+    .header-subtitle {
+        font-size: 14px;
+        color: #6B7280;
+        margin-top: 5px;
+    }
+
+    /* --- カードデザイン (入力エリア等) --- */
+    div[data-testid="stForm"], div[role="radiogroup"], .stDataEditor {
+        background-color: #F9FAFB !important; /* 極薄いグレー */
         border: 1px solid #E5E7EB !important;
         border-radius: 16px !important;
-        padding: 12px 16px !important;
-        font-size: 1rem !important;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        padding: 20px !important;
+        box-shadow: none !important;
+        margin-bottom: 16px !important;
     }
-    
-    /* --- ボタン: エレクトリックブルー --- */
+
+    /* --- 文字の可読性確保 --- */
+    h1, h2, h3, h4, h5, h6, p, label, span, div {
+        color: #111827 !important; /* 全て黒に近いグレーに強制 */
+    }
+    .stMarkdown p {
+        color: #374151 !important;
+    }
+
+    /* --- 入力フィールド (白背景・黒文字・枠線あり) --- */
+    .stTextInput input, .stSelectbox div[data-baseweb="select"], .stDateInput input {
+        background-color: #FFFFFF !important;
+        color: #111827 !important;
+        border: 2px solid #E5E7EB !important;
+        border-radius: 12px !important;
+        height: 48px !important; /* スマホでタップしやすい高さ */
+        font-size: 16px !important; /* スマホでズームされないサイズ */
+    }
+    .stTextInput input:focus, .stDateInput input:focus {
+        border-color: #2563EB !important;
+    }
+
+    /* --- ボタン (ピル型・高コントラスト) --- */
     .stButton > button {
         width: 100%;
-        background-color: #2563EB;
-        color: white !important;
-        border: none;
-        border-radius: 9999px; /* 完全な丸み */
-        padding: 14px 28px;
-        font-weight: 700;
-        font-size: 1rem;
-        letter-spacing: 0.5px;
-        transition: all 0.2s ease;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-    }
-    .stButton > button:hover {
-        background-color: #1D4ED8;
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+        background-color: #2563EB !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 9999px !important;
+        padding: 16px 24px !important;
+        font-weight: 700 !important;
+        font-size: 16px !important;
+        box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2) !important;
     }
     .stButton > button:active {
+        background-color: #1D4ED8 !important;
         transform: scale(0.98);
     }
 
-    /* --- ラジオボタンのラベル --- */
+    /* --- ラジオボタンの選択肢 --- */
     div[role="radiogroup"] label {
-        color: #374151 !important;
-        font-weight: 600;
-        background-color: white;
-        padding: 10px 15px;
-        border-radius: 12px;
-        margin-bottom: 8px;
-        border: 1px solid #F3F4F6;
-        transition: all 0.2s;
-    }
-    div[role="radiogroup"] label:hover {
-        border-color: #2563EB;
+        background-color: #FFFFFF !important;
+        padding: 12px !important;
+        border-radius: 10px !important;
+        margin-bottom: 8px !important;
+        border: 1px solid #E5E7EB !important;
     }
 
-    /* --- データエディタ --- */
+    /* --- データエディタ (表) --- */
     div[data-testid="stDataEditor"] {
-        background-color: #FFFFFF;
-        border: 1px solid #E5E7EB;
-        border-radius: 16px;
+        background-color: #FFFFFF !important;
+        border: 1px solid #E5E7EB !important;
     }
 
     /* --- トースト通知 --- */
     div[data-testid="stToast"] {
-        background-color: #FFFFFF;
-        color: #1F2937;
-        border-radius: 16px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-        border: 1px solid #E5E7EB;
+        background-color: #FFFFFF !important;
+        color: #111827 !important;
+        border: 1px solid #E5E7EB !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+    }
+    
+    /* --- スマホ調整: 余白 --- */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 5rem !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 🏎️ ロジック関数 (高速化)
+# 🏎️ ロジック関数
 # ==========================================
 
 NL_MONTHS = {
@@ -159,7 +173,6 @@ def create_driver():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     
-    # 画像ブロック
     prefs = {"profile.managed_default_content_settings.images": 2}
     options.add_experimental_option("prefs", prefs)
     
@@ -320,15 +333,14 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                 return False
 
 # ---------------------------------------------------------
-# 検索処理
+# 検索処理 (リロード対応)
 # ---------------------------------------------------------
 def search_on_site(driver, date_obj, part_id):
     target_url = "https://avo.hta.nl/uithoorn/"
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            if target_url not in driver.current_url:
-                driver.get(target_url)
+            driver.get(target_url)
             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "SearchButton")))
             
             d_str = get_dutch_date_str(date_obj)
@@ -359,15 +371,20 @@ def search_on_site(driver, date_obj, part_id):
 # 📱 UIメイン構成
 # ==========================================
 
-col_logo, col_title = st.columns([1, 4]) 
-with col_logo:
+# ロゴとタイトルを縦積み（スマホ最適化）または横並び
+c1, c2 = st.columns([1, 5])
+with c1:
     if os.path.exists(LOGO_IMAGE):
-        st.image(LOGO_IMAGE, width=80) 
+        st.image(LOGO_IMAGE, width=60)
     else:
-        st.markdown("# ⚽")
-with col_title:
-    st.markdown('<div class="header-text">High Ballers AI</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Automated Reservation System</div>', unsafe_allow_html=True)
+        st.write("⚽")
+with c2:
+    st.markdown("""
+        <div style="padding-top: 10px;">
+            <p class="header-title">High Ballers AI</p>
+            <p class="header-subtitle">Automated Reservation System</p>
+        </div>
+    """, unsafe_allow_html=True)
 
 password = st.text_input("パスワード", type="password")
 
@@ -390,7 +407,10 @@ if password == TEAM_PASSWORD:
     # --- 日付追加エリア ---
     if mode in ["1", "5"]:
         st.markdown("#### 📅 日付指定")
-        c1, c2 = st.columns([1, 2])
+        
+        # スマホでの段落ち防止のためにcolumnsを使わず、垂直に並べる手もあるが
+        # ここでは1:1.5くらいの比率で並べる
+        c1, c2 = st.columns([1.5, 2])
         with c1:
             part_opts = {"Avond (夜)": "3", "Ochtend (朝)": "1", "Middag (昼)": "2"}
             st.selectbox("時間帯", list(part_opts.keys()), key="picker_part_label", label_visibility="collapsed")
