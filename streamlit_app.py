@@ -35,15 +35,14 @@ st.set_page_config(
 )
 
 # ==========================================
-# 🎨 UIデザイン (Config.toml対応・モバイルレイアウト修正版)
+# 🎨 UIデザイン (Waymo風 + モバイル完全対応)
 # ==========================================
 st.markdown("""
     <style>
-    /* --- スマホでの表示崩れを防ぐための余白調整 --- */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 10rem !important; /* カレンダー用に下部余白を大きく確保 */
-        max-width: 100% !important;
+    /* --- 基本設定 (config.tomlと合わせて白背景を強制) --- */
+    .stApp {
+        background-color: #FFFFFF !important;
+        color: #111827 !important;
     }
 
     /* --- ヘッダー --- */
@@ -52,7 +51,7 @@ st.markdown("""
         font-weight: 900;
         color: #111827;
         letter-spacing: -0.5px;
-        margin-bottom: 0;
+        margin: 0;
     }
     .sub-header {
         font-size: 13px;
@@ -60,21 +59,28 @@ st.markdown("""
         margin-bottom: 20px;
     }
 
-    /* --- カードスタイル (角丸・枠線) --- */
+    /* --- カードデザイン (枠線・角丸) --- */
     div[data-testid="stForm"], div[data-baseweb="select"] > div, .stDataEditor {
         border-radius: 16px !important;
         border: 1px solid #E5E7EB !important;
+        background-color: #F9FAFB !important;
         box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
     }
     
-    /* --- 入力フィールド (スマホで見切れ対策：高さを確保) --- */
+    /* --- 入力フィールド (スマホでの視認性とタップしやすさ向上) --- */
     .stTextInput input, .stDateInput input {
         border-radius: 12px !important;
         height: 50px !important;
-        font-size: 16px !important; /* iOSでズームされないサイズ */
+        font-size: 16px !important; /* iOSのズーム防止 */
+        border: 2px solid #E5E7EB !important;
+        color: #111827 !important;
+        background-color: #FFFFFF !important;
+    }
+    .stTextInput input:focus, .stDateInput input:focus {
+        border-color: #2563EB !important;
     }
 
-    /* --- ボタン (タップしやすい大きさ) --- */
+    /* --- ボタン (ピル型・青) --- */
     .stButton > button {
         width: 100%;
         border-radius: 50px !important;
@@ -82,25 +88,37 @@ st.markdown("""
         font-weight: 700 !important;
         font-size: 16px !important;
         border: none !important;
+        background-color: #2563EB !important;
+        color: #FFFFFF !important;
         box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2) !important;
         margin-top: 10px;
     }
+    .stButton > button:active {
+        background-color: #1D4ED8 !important;
+        transform: scale(0.98);
+    }
 
-    /* --- カレンダーのポップアップ位置修正 (z-index) --- */
+    /* --- カレンダー (スマホで見切れないよう最前面へ) --- */
     div[data-baseweb="popover"], div[data-baseweb="calendar"] {
-        z-index: 9999 !important;
+        z-index: 99999 !important;
     }
     
-    /* --- トースト通知 --- */
-    div[data-testid="stToast"] {
-        border-radius: 12px;
-        border: 1px solid #E5E7EB;
+    /* --- 下部余白 (カレンダー用) --- */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 15rem !important;
+        max-width: 100% !important;
+    }
+    
+    /* --- テキスト色強制 --- */
+    h1, h2, h3, p, div, label, span {
+        color: #111827 !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 🏎️ ロジック関数
+# 🏎️ ロジック関数群 (インデント修正済み)
 # ==========================================
 
 NL_MONTHS = {
@@ -109,19 +127,24 @@ NL_MONTHS = {
 }
 
 def create_driver():
+    """ブラウザドライバの作成 (高速化設定付き)"""
     options = Options()
     options.add_argument("--headless") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    
+    # ステルス設定
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     
+    # 画像読み込みブロック (高速化)
     prefs = {"profile.managed_default_content_settings.images": 2}
     options.add_experimental_option("prefs", prefs)
+    
     return webdriver.Chrome(options=options)
 
 def get_dutch_date_str(date_obj):
@@ -135,6 +158,7 @@ def calculate_site_weekday(date_obj):
     return str((date_obj.weekday() + 1) % 7)
 
 def get_target_time_text(date_obj):
+    # 日曜は朝(09:00)、それ以外は夜(20:00)
     return "09:00" if date_obj.weekday() == 6 else "20:00" 
 
 def take_error_snapshot(driver, container, error_message):
@@ -160,7 +184,7 @@ def extract_price_estimate(text):
         return "-"
 
 # ---------------------------------------------------------
-# コールバック
+# コールバック関数 (日付追加)
 # ---------------------------------------------------------
 def add_manual_target():
     if 'picker_date' not in st.session_state or 'picker_part_label' not in st.session_state:
@@ -189,9 +213,137 @@ def add_manual_target():
     
     if not is_duplicate:
         st.session_state.manual_targets.append(new_item)
-        st.toast(f"✅ リストに追加: {get_japanese_date_str(date_val)}")
+        st.toast(f"✅ 追加: {get_japanese_date_str(date_val)}")
     else:
         st.toast("⚠️ その枠は既に追加されています")
+
+# ---------------------------------------------------------
+# 予約実行処理
+# ---------------------------------------------------------
+def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, container):
+    date_str = get_japanese_date_str(date_obj)
+    target_time_text = get_target_time_text(date_obj)
+    max_retries = 3
+    
+    container.info(f"🚀 予約開始: {date_str} {facility_name}")
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            found_element = None
+            items = driver.find_elements(By.CLASS_NAME, "item")
+            for item in items:
+                if item.get_attribute("href") == target_url:
+                    found_element = item
+                    break
+            
+            if found_element:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", found_element)
+                time.sleep(0.5) 
+                found_element.click()
+            else:
+                raise Exception("施設が見つかりません")
+
+            try:
+                reserve_btn = WebDriverWait(driver, 8).until(
+                    EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Naar reserveren')]"))
+                )
+                reserve_btn.click()
+            except:
+                raise Exception("予約ボタンが見つかりません")
+
+            container.write("  -> 📝 情報入力中...")
+            WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.ID, "selectedTimeLength")))
+            Select(driver.find_element(By.ID, "selectedTimeLength")).select_by_value("2")
+            time.sleep(1.5)
+
+            time_select = Select(driver.find_element(By.ID, "customSelectedTimeSlot"))
+            found_slot = False
+            selected_text = ""
+            for opt in time_select.options:
+                if target_time_text in opt.text:
+                    time_select.select_by_value(opt.get_attribute("value"))
+                    selected_text = opt.text
+                    found_slot = True
+                    break
+            
+            if not found_slot:
+                container.warning(f"  -> ⚠️ {target_time_text}〜の枠が埋まっています")
+                return False 
+            
+            container.write(f"  -> 🕒 枠確保: {selected_text}")
+            Select(driver.find_element(By.ID, "SelectedActivity")).select_by_value(TARGET_ACTIVITY_VALUE)
+            
+            for key, val in USER_PROFILE.items():
+                if key == "HouseNumberAddition" and val == "": continue
+                driver.find_element(By.NAME, key).send_keys(val)
+                
+            exact_price_str = "?"
+            try:
+                tarief_input = driver.find_element(By.ID, "tarief")
+                raw_val = tarief_input.get_attribute("value")
+                if raw_val: exact_price_str = raw_val.replace(',', '.')
+            except: pass
+
+            chk = driver.find_element(By.NAME, "voorwaarden")
+            if not chk.is_selected():
+                driver.execute_script("arguments[0].click();", chk)
+
+            if is_dry_run:
+                container.success(f"🛑 【テスト成功】予約寸前で停止 (金額: €{exact_price_str})")
+                return True
+            else:
+                driver.find_element(By.ID, "ConfirmButton").click()
+                time.sleep(5)
+                container.success(f"✅ 予約確定！ (金額: €{exact_price_str})")
+                return True
+
+        except Exception as e:
+            if attempt < max_retries:
+                container.warning(f"⚠️ リトライ中 ({attempt}/{max_retries})...")
+                time.sleep(2) 
+                driver.back() 
+                time.sleep(1)
+            else:
+                container.error(f"❌ 失敗: {e}")
+                take_error_snapshot(driver, container, str(e))
+                return False
+
+# ---------------------------------------------------------
+# 検索処理 (※ここが修正箇所: インデントを解除し、強制リロードを追加)
+# ---------------------------------------------------------
+def search_on_site(driver, date_obj, part_id):
+    target_url = "https://avo.hta.nl/uithoorn/"
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            # 前回の画面が残っている可能性が高いため、必ずトップへ移動する
+            driver.get(target_url)
+            
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "SearchButton")))
+            
+            d_str = get_dutch_date_str(date_obj)
+            date_input = driver.find_element(By.XPATH, "//div[@id='searchDateCalDiv']/preceding-sibling::input")
+            try:
+                driver.execute_script(f"$(arguments[0]).datepicker('setDate', '{d_str}');", date_input)
+            except:
+                driver.execute_script(f"arguments[0].value = '{d_str}';", date_input)
+            driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", date_input)
+            
+            Select(driver.find_element(By.ID, "DayOfTheWeek")).select_by_value(calculate_site_weekday(date_obj))
+            driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", driver.find_element(By.ID, "DayOfTheWeek"))
+            Select(driver.find_element(By.ID, "Daypart")).select_by_value(part_id)
+            Select(driver.find_element(By.ID, "Duration")).select_by_value("2")
+            Select(driver.find_element(By.ID, "Activity")).select_by_value("53")
+            driver.find_element(By.ID, "SearchButton").click()
+            
+            WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "item")))
+            return True
+        except Exception:
+            if attempt < max_retries:
+                time.sleep(1)
+                driver.refresh()
+            else:
+                return False
 
 # ==========================================
 # 📱 UIメイン構成
@@ -234,7 +386,7 @@ if password == TEAM_PASSWORD:
         st.markdown("---")
         st.markdown("#### 📅 TARGET DATE")
         
-        # スマホでの表示崩れを防ぐため、st.columnsを使わずに垂直配置
+        # スマホ最適化: 垂直配置
         part_opts = {"Avond (夜)": "3", "Ochtend (朝)": "1", "Middag (昼)": "2"}
         
         st.selectbox(
@@ -409,6 +561,7 @@ if password == TEAM_PASSWORD:
                             status.markdown(f"**実行中...** `{target_fac}` ({idx+1}/{total})")
                             prog.progress((idx + 1) / total)
                             
+                            # 関数呼び出しが確実に通るように修正済み
                             if search_on_site(driver, slot['date_obj'], slot['part_id']):
                                 if perform_booking(driver, target_fac, slot['date_obj'], slot['url'], is_dry, st):
                                     logs.append(f"✅ 成功: {slot['display']}")
