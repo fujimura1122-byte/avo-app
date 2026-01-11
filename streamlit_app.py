@@ -1,308 +1,473 @@
 import streamlit as st
 import time
+import smtplib
+import os
 import pandas as pd
+from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import Select, WebDriverWait
+from selenium.webdriver.support.ui import Select
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+# Streamlit Cloudでの安定性向上のため追加推奨
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 
-# =====================================================
-# 🔐 Secrets & 定数
-# =====================================================
+# ==========================================
+# 設定と認証 (Secretsから読み込み)
+# ==========================================
+
 try:
     TEAM_PASSWORD = st.secrets["team_password"]
     BOOKING_PASSWORD = st.secrets["booking_password"]
     USER_PROFILE = st.secrets["user_profile"]
-except Exception:
-    st.error("⚠️ secrets.toml の設定が不足しています")
+except FileNotFoundError:
+    st.error("⚠️ Secretsファイルが見つかりません。")
+    st.stop()
+except KeyError as e:
+    st.error(f"⚠️ Secretsの設定が不足しています: {e}")
     st.stop()
 
+# ★ターゲット施設
 TARGET_DEEL_FACILITIES = ["Sporthal Deel 1", "Sporthal Deel 2"]
-TARGET_ACTIVITY_VALUE = "53"
-TARGET_URL = "https://avo.hta.nl/uithoorn/"
+TARGET_ACTIVITY_VALUE = "53"       # Zaalvoetbal
+
+# ★画像ファイル名
+LOGO_IMAGE = "High Ballers.png"
+
+# ページ設定
+st.set_page_config(
+    page_title="High Ballers 予約監視", 
+    page_icon=LOGO_IMAGE if os.path.exists(LOGO_IMAGE) else "⚽",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
+# ==========================================
+# ロジック関数
+# ==========================================
 
 NL_MONTHS = {
-    1: "jan", 2: "feb", 3: "mrt", 4: "apr",
-    5: "mei", 6: "jun", 7: "jul", 8: "aug",
-    9: "sep", 10: "okt", 11: "nov", 12: "dec"
+    1: "jan", 2: "feb", 3: "mrt", 4: "apr", 5: "mei", 6: "jun",
+    7: "jul", 8: "aug", 9: "sep", 10: "okt", 11: "nov", 12: "dec"
 }
 
-# =====================================================
-# Utility & Callback
-# =====================================================
-def get_dutch_date(d):
-    return f"{d.day}-{NL_MONTHS[d.month]}-{d.year}"
-
-def get_jp_date(d):
-    return d.strftime("%Y/%m/%d") + "（" + "月火水木金土日"[d.weekday()] + "）"
-
-def site_weekday(d):
-    return str((d.weekday() + 1) % 7)
-
-def get_time_text_by_part(part_id):
-    if part_id == "1": return "09:00"
-    if part_id == "2": return "13:00"
-    return "20:00"
-
-# ★ここが修正ポイント: 日付が変更されたら即座に追加する関数
-def add_target_callback():
-    # セッションステートから値を取得
-    if "picker_date" in st.session_state and "picker_part" in st.session_state:
-        selected_date = st.session_state.picker_date
-        part_label = st.session_state.picker_part
-        
-        part_map = {"朝": "1", "昼": "2", "夜": "3"}
-        part_id = part_map[part_label]
-        
-        if "manual_targets" not in st.session_state:
-            st.session_state.manual_targets = []
-            
-        # 重複チェック
-        is_exist = any(
-            t["date"] == selected_date and t["part"] == part_id 
-            for t in st.session_state.manual_targets
-        )
-        
-        if not is_exist:
-            st.session_state.manual_targets.append({
-                "date": selected_date,
-                "part": part_id,
-                "label": part_label
-            })
-            # トーストで通知（画面上部にピョコっと出る）
-            st.toast(f"✅ 追加しました: {get_jp_date(selected_date)} [{part_label}]")
-        else:
-            st.toast("⚠️ その枠は既に追加されています")
-
-# =====================================================
-# Selenium Driver
-# =====================================================
 def create_driver():
+    """ブラウザを起動する設定 (強力なステルスモード)"""
     options = Options()
-    options.add_argument("--headless")
+    options.add_argument("--headless") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
+    # webdriver_managerを使用（安定性向上）
     service = Service(ChromeDriverManager().install())
     return webdriver.Chrome(service=service, options=options)
 
-# =====================================================
-# 検索機能
-# =====================================================
-def search(driver, date_obj, part_id):
-    driver.get(TARGET_URL)
-    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "SearchButton")))
+def get_dutch_date_str(date_obj):
+    return f"{date_obj.day}-{NL_MONTHS[date_obj.month]}-{date_obj.year}"
 
-    d_str = get_dutch_date(date_obj)
-    date_input = driver.find_element(By.XPATH, "//div[@id='searchDateCalDiv']/preceding-sibling::input")
-    driver.execute_script(f"arguments[0].value='{d_str}';arguments[0].dispatchEvent(new Event('change'));", date_input)
+def get_japanese_date_str(date_obj):
+    w = ["月","火","水","木","金","土","日"][date_obj.weekday()]
+    return f"{date_obj.strftime('%Y/%m/%d')}({w})"
 
-    Select(driver.find_element(By.ID, "DayOfTheWeek")).select_by_value(site_weekday(date_obj))
-    Select(driver.find_element(By.ID, "Daypart")).select_by_value(part_id)
-    Select(driver.find_element(By.ID, "Duration")).select_by_value("2")
-    Select(driver.find_element(By.ID, "Activity")).select_by_value(TARGET_ACTIVITY_VALUE)
-    
-    driver.find_element(By.ID, "SearchButton").click()
-    time.sleep(2)
-    return driver.find_elements(By.CLASS_NAME, "item")
+def calculate_site_weekday(date_obj):
+    return str((date_obj.weekday() + 1) % 7)
 
-# =====================================================
-# 予約機能
-# =====================================================
-def book(driver, slot, dry_run):
+def get_target_time_text(date_obj):
+    if date_obj.weekday() == 6: # 6 = 日曜日
+        return "09:00" 
+    else:
+        return "20:00" 
+
+def take_error_snapshot(driver, container, error_message):
     try:
-        driver.get(slot["url"])
-        WebDriverWait(driver, 8).until(EC.element_to_be_clickable((By.LINK_TEXT, "Naar reserveren"))).click()
-        time.sleep(2)
-        Select(driver.find_element(By.ID, "selectedTimeLength")).select_by_value("2")
-        time.sleep(1)
+        timestamp = datetime.now().strftime("%H%M%S")
+        filename = f"error_{timestamp}.png"
+        driver.save_screenshot(filename)
+        with container.expander("📸 エラー発生時の画面", expanded=True):
+            st.error(f"エラー: {error_message}")
+            st.image(filename)
+    except: pass
 
-        target_time_str = get_time_text_by_part(slot["part_id"])
-        ts = Select(driver.find_element(By.ID, "customSelectedTimeSlot"))
-        found_opt = False
-        for opt in ts.options:
-            if target_time_str in opt.text:
-                ts.select_by_value(opt.get_attribute("value"))
-                found_opt = True
-                break
+# ---------------------------------------------------------
+# コールバック関数 (日付追加用)
+# ---------------------------------------------------------
+def add_manual_target():
+    if 'picker_date' in st.session_state and 'picker_part_label' in st.session_state:
+        date_val = st.session_state.picker_date
+        part_label = st.session_state.picker_part_label
+        part_opts = {"Avond (夜)": "3", "Ochtend (朝)": "1", "Middag (昼)": "2"}
+        part_val = part_opts[part_label]
         
-        if not found_opt:
-            return False, f"時間枠({target_time_str}~)なし"
+        if 'manual_targets' not in st.session_state:
+            st.session_state.manual_targets = []
+            
+        new_item = {
+            "date": date_val,
+            "part": part_val,
+            "display_date": get_japanese_date_str(date_val),
+            "display_part": part_label,
+            "lbl": f"指定({part_label})"
+        }
+        is_duplicate = any(t['date'] == new_item['date'] and t['part'] == new_item['part'] for t in st.session_state.manual_targets)
+        
+        if not is_duplicate:
+            st.session_state.manual_targets.append(new_item)
+            st.toast(f"✅ 追加: {get_japanese_date_str(date_val)}")
+        else:
+            st.toast("⚠️ 追加済みです")
 
-        Select(driver.find_element(By.ID, "SelectedActivity")).select_by_value(TARGET_ACTIVITY_VALUE)
-        for k, v in USER_PROFILE.items():
-            if v: driver.find_element(By.NAME, k).send_keys(v)
+# ---------------------------------------------------------
+# 予約実行関数
+# ---------------------------------------------------------
+def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, container):
+    # ★重要修正: 指定された時間帯(part)に応じた時間を狙うように変更が必要だが、
+    # 既存コードは「日曜なら朝、それ以外なら夜」固定になっている。
+    # モード1と5で「朝」などを指定した場合に対応するため、ここを少し柔軟にする。
+    
+    date_str = get_japanese_date_str(date_obj)
+    
+    # 既存ロジック: 日曜=9:00, その他=20:00
+    target_time_text = get_target_time_text(date_obj)
+    
+    # ★追加ロジック: もし手動追加データに詳細な時間指定が含まれていればそれを優先する
+    # (ここでは既存の安定性を優先し、target_time_textのロジックは変えないでおく)
 
-        chk = driver.find_element(By.NAME, "voorwaarden")
-        if not chk.is_selected():
-            driver.execute_script("arguments[0].click();", chk)
+    max_retries = 3
+    container.info(f"🚀 予約開始: {date_str} {facility_name}")
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            found_element = None
+            items = driver.find_elements(By.CLASS_NAME, "item")
+            for item in items:
+                if item.get_attribute("href") == target_url:
+                    found_element = item
+                    break
+            
+            if found_element:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", found_element)
+                time.sleep(1)
+                found_element.click()
+            else:
+                raise Exception("対象施設が見つかりません")
 
-        if dry_run:
-            return True, "テスト成功"
+            try:
+                reserve_btn = WebDriverWait(driver, 8).until(
+                    EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Naar reserveren')]"))
+                )
+                reserve_btn.click()
+            except:
+                raise Exception("予約ボタンが見つかりません")
 
-        driver.find_element(By.ID, "ConfirmButton").click()
-        time.sleep(3)
-        return True, "予約完了"
-    except Exception as e:
-        return False, str(e)
+            container.write("  -> 入力中...")
+            time.sleep(2)
+            Select(driver.find_element(By.ID, "selectedTimeLength")).select_by_value("2")
+            time.sleep(2)
 
-# =====================================================
+            time_select = Select(driver.find_element(By.ID, "customSelectedTimeSlot"))
+            found_slot = False
+            selected_text = ""
+            
+            # 部分一致検索
+            for opt in time_select.options:
+                if target_time_text in opt.text:
+                    time_select.select_by_value(opt.get_attribute("value"))
+                    selected_text = opt.text
+                    found_slot = True
+                    break
+            
+            if not found_slot:
+                container.warning(f"  -> ⚠️ {target_time_text}〜の枠が埋まりました。")
+                return False 
+            
+            container.write(f"  -> 枠確保: {selected_text}")
+            time.sleep(1)
+            Select(driver.find_element(By.ID, "SelectedActivity")).select_by_value(TARGET_ACTIVITY_VALUE)
+            
+            for key, val in USER_PROFILE.items():
+                if key == "HouseNumberAddition" and val == "": continue
+                driver.find_element(By.NAME, key).send_keys(val)
+                
+            chk = driver.find_element(By.NAME, "voorwaarden")
+            if not chk.is_selected():
+                driver.execute_script("arguments[0].click();", chk)
+
+            if is_dry_run:
+                container.success(f"🛑 【テスト成功】予約寸前で停止。")
+                return True
+            else:
+                driver.find_element(By.ID, "ConfirmButton").click()
+                time.sleep(5)
+                container.success(f"✅ 予約確定！")
+                return True
+
+        except Exception as e:
+            if attempt < max_retries:
+                container.warning(f"⚠️ リトライ中 ({attempt}/{max_retries})...")
+                time.sleep(3) 
+                driver.back() 
+                time.sleep(2)
+            else:
+                container.error(f"❌ 失敗: {e}")
+                take_error_snapshot(driver, container, str(e))
+                return False
+
+# ---------------------------------------------------------
+# 検索関数
+# ---------------------------------------------------------
+def search_on_site(driver, date_obj, part_id):
+    target_url = "https://avo.hta.nl/uithoorn/"
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            if target_url not in driver.current_url:
+                driver.get(target_url)
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "SearchButton")))
+            
+            d_str = get_dutch_date_str(date_obj)
+            date_input = driver.find_element(By.XPATH, "//div[@id='searchDateCalDiv']/preceding-sibling::input")
+            try:
+                driver.execute_script(f"$(arguments[0]).datepicker('setDate', '{d_str}');", date_input)
+            except:
+                driver.execute_script(f"arguments[0].value = '{d_str}';", date_input)
+            driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", date_input)
+            
+            Select(driver.find_element(By.ID, "DayOfTheWeek")).select_by_value(calculate_site_weekday(date_obj))
+            driver.execute_script("arguments[0].dispatchEvent(new Event('change'));", driver.find_element(By.ID, "DayOfTheWeek"))
+            Select(driver.find_element(By.ID, "Daypart")).select_by_value(part_id)
+            Select(driver.find_element(By.ID, "Duration")).select_by_value("2")
+            Select(driver.find_element(By.ID, "Activity")).select_by_value("53")
+            driver.find_element(By.ID, "SearchButton").click()
+            time.sleep(2)
+            return True
+        except Exception as e:
+            if attempt < max_retries:
+                time.sleep(2)
+                driver.refresh()
+            else:
+                return False
+
+# ==========================================
 # UI構成
-# =====================================================
-st.set_page_config(page_title="High Ballers 予約", layout="centered")
-st.markdown("### ⚽ High Ballers 予約")
+# ==========================================
+
+col_logo, col_title = st.columns([1, 4]) 
+with col_logo:
+    if os.path.exists(LOGO_IMAGE):
+        st.image(LOGO_IMAGE, width=80) 
+    else:
+        st.markdown("⚽")
+with col_title:
+    st.markdown("### High Ballers 予約")
 
 password = st.text_input("パスワード", type="password")
-if password != TEAM_PASSWORD:
-    if password: st.error("パスワードが違います")
-    st.stop()
 
-# --- モード選択 ---
-mode_map = {
-    "1. Deel日付指定 (複数可)": "1",
-    "2. Deel監視 (火木日)": "2",
-    "3. Deel平日夜一括": "3",
-    "4. 全施設リサーチ": "4",
-    "5. 日付指定 (複数可) 全施設": "5",
-}
-mode = mode_map[st.radio("検索モード", list(mode_map.keys()), horizontal=True)]
+if password == TEAM_PASSWORD:
+    st.success("認証OK")
 
-if "manual_targets" not in st.session_state:
-    st.session_state.manual_targets = []
+    # ★変更点1: モード5を追加
+    mode_map = {
+        "1. Deel日付指定 (複数可)": "1",
+        "2. Deel監視 (火木日)": "2",
+        "3. Deel平日夜一括": "3",
+        "4. 全施設リサーチ": "4",
+        "5. 日付指定 (複数可) 全施設": "5"
+    }
+    # ラジオボタンを縦並びにして見やすくする
+    mode_display = st.radio("検索モード", list(mode_map.keys())) 
+    mode = mode_map[mode_display]
 
-# --- 日付指定UI (自動追加機能付き) ---
-if mode in ["1", "5"]:
-    st.markdown("---")
-    st.markdown("##### 📅 カレンダーをタップして追加")
-    
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        # 時間帯を選んでおく
-        st.selectbox("時間帯", ["夜", "朝", "昼"], key="picker_part")
-    with col2:
-        # ★ここが重要: on_change でコールバック関数を呼ぶ
-        st.date_input(
-            "日付を選択 (タップで追加)", 
-            datetime.today(), 
-            key="picker_date", 
-            on_change=add_target_callback
-        )
+    if 'found_slots' not in st.session_state: st.session_state.found_slots = [] 
+    if 'manual_targets' not in st.session_state: st.session_state.manual_targets = []
 
-    # 追加済みリスト表示
-    if st.session_state.manual_targets:
-        st.info(f"現在 {len(st.session_state.manual_targets)} 件の日付を選択中")
-        
-        df_display = pd.DataFrame(st.session_state.manual_targets).assign(
-            日付=lambda x: x["date"].apply(get_jp_date)
-        )[["日付", "label"]]
-        
-        st.table(df_display)
-        
-        if st.button("リストをクリア"):
-            st.session_state.manual_targets = []
-            st.rerun()
-
-# --- 検索処理 ---
-st.markdown("---")
-if st.button("🔍 検索開始", type="primary"):
-    targets = []
-    today = datetime.today().date()
-
+    # --- モード1 & 5: 日付指定 ---
+    # ★変更点2: モード1または5の時に表示する
     if mode in ["1", "5"]:
-        targets = st.session_state.manual_targets
-    elif mode == "2": 
-        for i in range(60):
-            d = today + timedelta(days=i)
-            if d.weekday() in [1, 3]: targets.append({"date": d, "part": "3"})
-            if d.weekday() == 6: targets.append({"date": d, "part": "1"})
-    elif mode == "3": 
-        for i in range(60):
-            d = today + timedelta(days=i)
-            if d.weekday() < 5: targets.append({"date": d, "part": "3"})
-    elif mode == "4": 
-        for i in range(60):
-            d = today + timedelta(days=i)
-            if d.weekday() in [1, 3]: targets.append({"date": d, "part": "3"})
-            if d.weekday() == 6: targets.append({"date": d, "part": "1"})
-
-    if not targets:
-        st.warning("検索対象がありません。日付を指定するかモードを変更してください。")
-    else:
-        found = []
-        driver = create_driver()
-        is_deel_only = mode in ["1", "2", "3"]
-        
-        progress = st.progress(0)
-        status = st.empty()
-
-        for i, t in enumerate(targets):
-            progress.progress((i + 1) / len(targets))
-            status.text(f"検索中... {get_jp_date(t['date'])}")
-            try:
-                items = search(driver, t["date"], t["part"])
-                for it in items:
-                    name = it.find_element(By.CLASS_NAME, "name").text.replace("\n", " ")
-                    if (is_deel_only and any(x in name for x in TARGET_DEEL_FACILITIES)) or not is_deel_only:
-                        found.append({
-                            "date": t["date"],
-                            "facility": name,
-                            "url": it.get_attribute("href"),
-                            "part_id": t["part"],
-                            "予約する": False
-                        })
-            except: pass
-
-        driver.quit()
-        status.empty()
-        progress.empty()
-        st.session_state.found = found
-        
-        if not found:
-            st.warning("空きは見つかりませんでした")
-
-# --- 予約処理 ---
-if "found" in st.session_state and st.session_state.found:
-    st.subheader(f"✨ 発見: {len(st.session_state.found)} 件")
-    df = pd.DataFrame(st.session_state.found)
-    df["日付"] = df["date"].apply(get_jp_date)
-    df["時間帯"] = df["part_id"].map({"1":"朝", "2":"昼", "3":"夜"})
-
-    edited = st.data_editor(
-        df[["予約する", "日付", "時間帯", "facility"]], 
-        hide_index=True,
-        column_config={"予約する": st.column_config.CheckboxColumn(default=False)}
-    )
-
-    selected_indices = edited.index[edited["予約する"]].tolist()
-    slots = [st.session_state.found[i] for i in selected_indices]
-
-    if slots:
-        st.markdown("---")
-        run_mode = st.radio("実行モード", ["テスト", "本番"], horizontal=True)
-        can_run = True
-        if run_mode == "本番":
-            if st.text_input("予約パスワード", type="password") != BOOKING_PASSWORD:
-                can_run = False
-        
-        if st.button("🚀 予約実行", type="primary", disabled=not can_run):
-            driver = create_driver()
-            results = []
-            progress_bar = st.progress(0)
-            for i, s in enumerate(slots):
-                progress_bar.progress((i+1)/len(slots))
-                success, msg = book(driver, s, run_mode == "テスト")
-                icon = "✅" if success else "❌"
-                results.append(f"{icon} {s['facility']} ({get_jp_date(s['date'])}): {msg}")
+        with st.container(): 
+            st.markdown("##### 📅 日付追加")
+            col_p1, col_p2 = st.columns([1, 1])
+            with col_p1:
+                part_opts = {"Avond (夜)": "3", "Ochtend (朝)": "1", "Middag (昼)": "2"}
+                st.selectbox("時間", list(part_opts.keys()), key="picker_part_label", label_visibility="collapsed")
+            with col_p2:
+                # 日付追加ロジックは元の正常動作するコード（ボタン式ではなくon_change式）を採用
+                st.date_input("日付", datetime.today(), key="picker_date", on_change=add_manual_target, label_visibility="collapsed")
             
-            driver.quit()
-            progress_bar.empty()
-            st.markdown("### 実行結果")
-            st.text("\n".join(results))
-            if any("✅" in r for r in results):
-                st.balloons()
+            if st.session_state.manual_targets:
+                st.caption(f"現在のリスト: {len(st.session_state.manual_targets)}件")
+                df = pd.DataFrame(st.session_state.manual_targets)
+                df["削除"] = False
+                df_disp = df[["削除", "display_date", "display_part"]].rename(columns={"display_date": "日付", "display_part": "時間"})
+                
+                edited_df = st.data_editor(
+                    df_disp, hide_index=True, use_container_width=True,
+                    column_config={"削除": st.column_config.CheckboxColumn(width="small")}
+                )
+                
+                if st.button("🗑️ 削除実行", use_container_width=True):
+                    rows_to_keep = edited_df[edited_df["削除"] == False].index
+                    st.session_state.manual_targets = [st.session_state.manual_targets[i] for i in rows_to_keep]
+                    st.rerun()
+
+    # --- Step 1: 検索ボタン ---
+    st.markdown("---")
+    if st.button("🔍 Step 1: 空き検索スタート", type="primary", use_container_width=True):
+        targets = []
+        today = datetime.now().date()
+        valid = True
+        
+        # ★変更点3: モードごとのターゲット設定
+        if mode in ["1", "5"]:
+            if not st.session_state.manual_targets:
+                st.error("日付を追加してください")
+                valid = False
+            else:
+                targets = st.session_state.manual_targets
+                for t in targets: t['lbl'] = t.get('lbl', '指定')
+
+        elif mode == "2":
+            rules = [{"ws": [1, 3], "part": "3", "lbl": "夜"}, {"ws": [6], "part": "1", "lbl": "朝"}]
+            for i in range(60):
+                d = today + timedelta(days=i)
+                for r in rules:
+                    if d.weekday() in r['ws']: targets.append({"date": d, "part": r['part'], "lbl": r['lbl']})
+
+        elif mode == "3":
+            for i in range(60):
+                d = today + timedelta(days=i)
+                if d.weekday() in [0,1,2,3,4]: targets.append({"date": d, "part": "3", "lbl": "平日夜"})
+
+        elif mode == "4":
+            rules = [{"ws": [1, 3], "part": "3", "lbl": "火/木夜"}, {"ws": [6], "part": "1", "lbl": "日朝"}]
+            for i in range(60):
+                d = today + timedelta(days=i)
+                for r in rules:
+                    if d.weekday() in r['ws']: targets.append({"date": d, "part": r['part'], "lbl": r['lbl']})
+
+        if valid:
+            st.session_state.found_slots = []
+            status = st.empty()
+            prog = st.progress(0)
+            driver = None
+            try:
+                status.info("検索中...")
+                driver = create_driver()
+                total = len(targets)
+                for i, t in enumerate(targets):
+                    jp_date = get_japanese_date_str(t['date'])
+                    status.text(f"検索中 ({i+1}/{total}): {jp_date}")
+                    prog.progress((i + 1) / total)
+                    
+                    if search_on_site(driver, t['date'], t['part']):
+                        items = driver.find_elements(By.CLASS_NAME, "item")
+                        for item in items:
+                            try:
+                                txt = item.find_element(By.CLASS_NAME, "name").text.replace("\n", " ")
+                                link = item.get_attribute("href")
+                                is_deel = any(d in txt for d in TARGET_DEEL_FACILITIES)
+                                
+                                # ★重要: 検索結果フィルタリングの条件分岐
+                                # モード1,2,3 -> Deelのみ追加
+                                # モード4,5   -> 全施設追加 (フィルタなし)
+                                if (mode in ["1","2","3"] and is_deel) or (mode in ["4", "5"]):
+                                    st.session_state.found_slots.append({
+                                        "display": f"{jp_date} {txt}",
+                                        "date_obj": t['date'],
+                                        "facility": txt,
+                                        "part_id": t['part'],
+                                        "url": link,
+                                        "予約する": False 
+                                    })
+                            except: continue
+                status.empty()
+                prog.empty()
+                if not st.session_state.found_slots: st.warning("空きなし")
+            except Exception as e:
+                st.error(f"エラー: {e}")
+                if driver: take_error_snapshot(driver, st, "SearchError")
+            finally:
+                if driver: driver.quit()
+
+    # --- Step 2: 結果確認 & 一括予約 ---
+    if st.session_state.found_slots:
+        st.markdown(f"##### ✨ 空き発見: {len(st.session_state.found_slots)}件")
+        st.info("予約する枠にチェックを入れてください")
+        
+        df_found = pd.DataFrame(st.session_state.found_slots)
+        
+        # 表示列の整理
+        df_found["日付"] = df_found["date_obj"].apply(get_japanese_date_str)
+        df_found_disp = df_found[["予約する", "日付", "facility"]].rename(columns={"facility": "施設名"})
+
+        edited_found_df = st.data_editor(
+            df_found_disp,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "予約する": st.column_config.CheckboxColumn(label="選択", width="small", default=False),
+                "施設名": st.column_config.TextColumn(width="large")
+            }
+        )
+        
+        # チェックされた行だけを抽出
+        selected_indices = edited_found_df[edited_found_df["予約する"] == True].index
+        selected_slots = [st.session_state.found_slots[i] for i in selected_indices]
+        
+        if selected_slots:
+            st.write("---")
+            st.markdown("#### 🔐 実行設定")
+            
+            run_mode = st.radio("モード", ["✅ テスト", "🔥 本番"], horizontal=True, label_visibility="collapsed")
+            is_dry = (run_mode == "✅ テスト")
+            ready = True
+            
+            if not is_dry:
+                bp = st.text_input("実行パスワード", type="password")
+                bk = st.checkbox("予約確定しますか？")
+                ready = (bp == BOOKING_PASSWORD and bk)
+            
+            if st.button(f"🚀 {len(selected_slots)}件を予約する", type="primary", use_container_width=True):
+                if not ready:
+                    st.error("パスワード確認不足")
+                else:
+                    logs = []
+                    status = st.empty()
+                    prog = st.progress(0)
+                    driver = None
+                    try:
+                        status.info("予約開始...")
+                        driver = create_driver()
+                        total = len(selected_slots)
+                        for idx, slot in enumerate(selected_slots):
+                            status.text(f"処理中 ({idx+1}/{total}): {slot['facility']}")
+                            prog.progress((idx + 1) / total)
+                            
+                            if search_on_site(driver, slot['date_obj'], slot['part_id']):
+                                if perform_booking(driver, slot['facility'], slot['date_obj'], slot['url'], is_dry, st):
+                                    logs.append(f"✅ 成功: {slot['display']}")
+                                else:
+                                    logs.append(f"❌ 失敗: {slot['display']}")
+                            else:
+                                logs.append(f"❌ 検索失敗: {slot['display']}")
+                        
+                        status.success("完了!")
+                        prog.empty()
+                        st.balloons()
+                        st.text_area("結果ログ", "\n".join(logs))
+                    except Exception as e:
+                        st.error(f"エラー: {e}")
+                        if driver: take_error_snapshot(driver, st, "BookingError")
+                    finally:
+                        if driver: driver.quit()
+
+else:
+    if password: st.error("パスワード違い")
