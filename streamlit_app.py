@@ -29,7 +29,7 @@ except KeyError as e:
 
 # ★ターゲット施設
 TARGET_DEEL_FACILITIES = ["Sporthal Deel 1", "Sporthal Deel 2"]
-# ★ハイライト対象
+# ★ハイライト対象（部分一致）
 HIGHLIGHT_TARGET_NAME = "De Scheg Sporthal Deel"
 TARGET_ACTIVITY_VALUE = "53" 
 LOGO_IMAGE = "High Ballers.png"
@@ -94,13 +94,11 @@ def take_error_snapshot(driver, container, error_message):
 def extract_price_estimate(text):
     # リスト上の "€ 25,52" を "€ 51.04" (2時間分) に変換して表示する
     try:
-        # 数字部分を抽出 (カンマ対応)
         match = re.search(r"€\s*([\d,.]+)", text)
         if match:
-            raw_val = match.group(1).replace('.', '').replace(',', '.') # 欧州形式をfloatへ
+            raw_val = match.group(1).replace('.', '').replace(',', '.')
             val_float = float(raw_val)
-            # ★重要: アプリは2時間予約固定なので、表示価格を2倍にする
-            total_val = val_float * 2
+            total_val = val_float * 2 # 2時間分
             return f"€ {total_val:.2f}"
         return "-"
     except:
@@ -175,7 +173,7 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             
             # 3. 2時間選択
             Select(driver.find_element(By.ID, "selectedTimeLength")).select_by_value("2")
-            time.sleep(2) # 金額反映待ち
+            time.sleep(2)
 
             # 4. 時間枠選択
             time_select = Select(driver.find_element(By.ID, "customSelectedTimeSlot"))
@@ -201,16 +199,14 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                 if key == "HouseNumberAddition" and val == "": continue
                 driver.find_element(By.NAME, key).send_keys(val)
                 
-            # ★ここに修正追加: 正確な金額を hidden input から抽出
+            # 正確な金額を hidden input から抽出
             exact_price_str = "不明"
             try:
-                # <input id="tarief" value="51,33"> を取得
                 tarief_input = driver.find_element(By.ID, "tarief")
-                raw_val = tarief_input.get_attribute("value") # "51,33"
+                raw_val = tarief_input.get_attribute("value")
                 if raw_val:
-                    exact_price_str = raw_val.replace(',', '.') # "51.33"
-            except:
-                pass
+                    exact_price_str = raw_val.replace(',', '.')
+            except: pass
 
             chk = driver.find_element(By.NAME, "voorwaarden")
             if not chk.is_selected():
@@ -223,7 +219,6 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             else:
                 driver.find_element(By.ID, "ConfirmButton").click()
                 time.sleep(5)
-                # ログに正確な金額を含める
                 container.success(f"✅ 予約確定！ (金額: €{exact_price_str})")
                 return True
 
@@ -388,14 +383,14 @@ if password == TEAM_PASSWORD:
                                 link = item.get_attribute("href")
                                 is_deel = any(d in txt_name for d in TARGET_DEEL_FACILITIES)
                                 
-                                # ★修正: リスト用には「表示価格×2」で概算を表示 (高速化のため)
+                                # 金額抽出
                                 price_est = extract_price_estimate(txt_content)
 
-                                # ★修正: 全施設リサーチ時のソフトなハイライト
+                                # ★修正: モード4または5ならハイライトを適用
                                 display_name = txt_name
-                                if mode == "4": 
+                                if mode in ["4", "5"]: 
                                     if HIGHLIGHT_TARGET_NAME in txt_name:
-                                        display_name = "🔸 " + txt_name
+                                        display_name = "🔶 " + txt_name # 大きなオレンジダイヤに変更
 
                                 if (mode in ["1","2","3"] and is_deel) or (mode in ["4", "5"]):
                                     st.session_state.found_slots.append({
@@ -467,7 +462,6 @@ if password == TEAM_PASSWORD:
                         driver = create_driver()
                         total = len(selected_slots)
                         for idx, slot in enumerate(selected_slots):
-                            # アイコンなしの正式名称を使う
                             target_fac = slot.get('raw_facility', slot['facility'])
                             status.text(f"処理中 ({idx+1}/{total}): {target_fac}")
                             prog.progress((idx + 1) / total)
