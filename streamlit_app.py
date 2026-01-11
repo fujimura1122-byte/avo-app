@@ -33,7 +33,7 @@ HIGHLIGHT_TARGET_NAME = "De Scheg Sporthal Deel"
 TARGET_ACTIVITY_VALUE = "53" 
 LOGO_IMAGE = "High Ballers.png"
 
-# ページ設定 (タイトルとアイコン)
+# ページ設定
 st.set_page_config(
     page_title="High Ballers AI", 
     page_icon="⚽",
@@ -42,101 +42,94 @@ st.set_page_config(
 )
 
 # ==========================================
-# 🎨 UIデザイン (近未来・モバイルファースト)
+# 🎨 UIデザイン (高級感・目に優しいダーク・モバイルファースト)
 # ==========================================
 st.markdown("""
     <style>
-    /* --- 全体のテーマ設定 (ダークモード & 近未来) --- */
+    /* --- ベースの配色: 目に優しいディープネイビー --- */
     .stApp {
-        background-color: #0E1117; /* 深いダークグレー */
-        color: #E0E0E0;
+        background: radial-gradient(circle at 50% 10%, #1a202c 0%, #0d1117 100%);
+        color: #E2E8F0;
         font-family: 'Helvetica Neue', 'Arial', sans-serif;
     }
     
-    /* --- ヘッダーの装飾 --- */
-    h1, h2, h3 {
-        color: #FFFFFF !important;
-        font-weight: 800 !important;
-        letter-spacing: 1px;
-    }
+    /* --- ヘッダーテキスト --- */
     .header-text {
-        background: linear-gradient(90deg, #FF4B2B, #FF416C);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         font-size: 1.8rem;
-        font-weight: bold;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        text-shadow: 0 2px 10px rgba(118, 75, 162, 0.3);
     }
 
-    /* --- ボタンのスタイル (グラデーション & 立体感) --- */
+    /* --- コンテナ・カードデザイン (グラスモーフィズム) --- */
+    /* 入力エリアやリストを見やすくするために背景を少し明るくする */
+    div[role="radiogroup"], .stDataEditor, div[data-testid="stExpander"] {
+        background-color: rgba(30, 41, 59, 0.7); /* 半透明のネイビー */
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 15px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* --- 入力フィールド (はっきり見えるように) --- */
+    .stTextInput input, .stSelectbox div[data-baseweb="select"], .stDateInput input {
+        background-color: #2D3748 !important; /* 明るめのグレーネイビー */
+        color: #F7FAFC !important;
+        border: 1px solid #4A5568 !important;
+        border-radius: 12px !important;
+        padding: 10px !important;
+        font-size: 1rem !important;
+    }
+    /* 入力欄のラベルを見やすく */
+    label {
+        color: #A0AEC0 !important;
+        font-weight: 600 !important;
+        font-size: 0.9rem !important;
+    }
+
+    /* --- ボタン (エナジーオレンジ: グラデーションで立体感) --- */
     .stButton > button {
         width: 100%;
-        background: linear-gradient(135deg, #FF4B2B 0%, #FF416C 100%);
+        background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%);
         color: white;
         border: none;
         border-radius: 12px;
-        padding: 0.6rem 1rem;
+        padding: 0.7rem 1rem;
         font-weight: bold;
-        font-size: 1rem;
-        box-shadow: 0 4px 15px rgba(255, 75, 43, 0.4);
-        transition: all 0.2s ease-in-out;
+        font-size: 1.1rem;
+        box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        transition: transform 0.2s, box-shadow 0.2s;
     }
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(255, 75, 43, 0.6);
+        box-shadow: 0 6px 20px rgba(255, 107, 107, 0.6);
         color: white !important;
     }
     .stButton > button:active {
-        transform: translateY(1px);
+        transform: scale(0.98);
     }
-
-    /* --- 入力フィールド & セレクトボックス --- */
-    .stTextInput input, .stSelectbox div[data-baseweb="select"] {
-        background-color: #1F2229 !important;
-        color: white !important;
-        border: 1px solid #333 !important;
-        border-radius: 10px !important;
-    }
-
-    /* --- ラジオボタン (カード型にして押しやすく) --- */
-    div[role="radiogroup"] {
-        background-color: #161920;
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid #333;
-        box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
-    }
-    div[role="radiogroup"] label {
-        color: #FAFAFA !important;
-        font-size: 0.95rem;
-        padding: 5px 0;
-    }
-
-    /* --- データエディタ (リスト) --- */
-    div[data-testid="stDataEditor"] {
-        border-radius: 10px;
-        border: 1px solid #333;
-        overflow: hidden;
+    
+    /* --- チェックボックス --- */
+    .stCheckbox label {
+        color: #E2E8F0 !important;
     }
 
     /* --- トースト通知 --- */
     div[data-testid="stToast"] {
-        background-color: #1F2229;
+        background-color: #2D3748;
         color: white;
-        border-left: 6px solid #FF4B2B;
-        border-radius: 8px;
+        border-radius: 12px;
+        border-left: 6px solid #FF8E53;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
     }
     
-    /* --- スクロールバー --- */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        background: #0E1117; 
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #333; 
-        border-radius: 4px;
+    /* --- データエディタの文字色調整 --- */
+    div[data-testid="stDataEditor"] {
+        color: #E2E8F0;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -165,7 +158,7 @@ def create_driver():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     
-    # ★高速化のキモ: 画像を読み込まない設定
+    # ★高速化: 画像を読み込まない
     prefs = {"profile.managed_default_content_settings.images": 2}
     options.add_experimental_option("prefs", prefs)
     
@@ -182,7 +175,6 @@ def calculate_site_weekday(date_obj):
     return str((date_obj.weekday() + 1) % 7)
 
 def get_target_time_text(date_obj):
-    # 日曜は朝(09:00)、それ以外は夜(20:00)を基準
     return "09:00" if date_obj.weekday() == 6 else "20:00" 
 
 def take_error_snapshot(driver, container, error_message):
@@ -196,7 +188,6 @@ def take_error_snapshot(driver, container, error_message):
     except: pass
 
 def extract_price_estimate(text):
-    # リスト表示用: 概算金額 (単価×2)
     try:
         match = re.search(r"€\s*([\d,.]+)", text)
         if match:
@@ -248,7 +239,6 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
     
     for attempt in range(1, max_retries + 1):
         try:
-            # 1. 施設選択
             found_element = None
             items = driver.find_elements(By.CLASS_NAME, "item")
             for item in items:
@@ -258,13 +248,11 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             
             if found_element:
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", found_element)
-                # 高速化のため待機時間を短縮
                 time.sleep(0.5) 
                 found_element.click()
             else:
                 raise Exception("施設が見つかりません")
 
-            # 2. 予約ボタン
             try:
                 reserve_btn = WebDriverWait(driver, 8).until(
                     EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Naar reserveren')]"))
@@ -274,13 +262,10 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                 raise Exception("予約ボタンが見つかりません")
 
             container.write("  -> 📝 情報入力中...")
-            
-            # 3. 時間選択 (2時間)
             WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.ID, "selectedTimeLength")))
             Select(driver.find_element(By.ID, "selectedTimeLength")).select_by_value("2")
-            time.sleep(1.5) # 金額計算のロード待ち
+            time.sleep(1.5)
 
-            # 4. 開始時間枠
             time_select = Select(driver.find_element(By.ID, "customSelectedTimeSlot"))
             found_slot = False
             selected_text = ""
@@ -298,12 +283,10 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             container.write(f"  -> 🕒 枠確保: {selected_text}")
             Select(driver.find_element(By.ID, "SelectedActivity")).select_by_value(TARGET_ACTIVITY_VALUE)
             
-            # 5. 個人情報入力
             for key, val in USER_PROFILE.items():
                 if key == "HouseNumberAddition" and val == "": continue
                 driver.find_element(By.NAME, key).send_keys(val)
                 
-            # 正確な金額取得
             exact_price_str = "不明"
             try:
                 tarief_input = driver.find_element(By.ID, "tarief")
@@ -315,7 +298,6 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             if not chk.is_selected():
                 driver.execute_script("arguments[0].click();", chk)
 
-            # 6. 確定
             if is_dry_run:
                 container.success(f"🛑 【テスト成功】寸前で停止 (金額: €{exact_price_str})")
                 return True
@@ -363,7 +345,6 @@ def search_on_site(driver, date_obj, part_id):
             Select(driver.find_element(By.ID, "Activity")).select_by_value("53")
             driver.find_element(By.ID, "SearchButton").click()
             
-            # 検索結果待機 (高速化のためWaitを使用)
             WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CLASS_NAME, "item")))
             return True
         except Exception:
@@ -389,9 +370,8 @@ with col_title:
 password = st.text_input("ACCESS KEY", type="password", placeholder="Enter Password")
 
 if password == TEAM_PASSWORD:
-    st.markdown("---")
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    # モード選択
     mode_map = {
         "1. Deel日付指定 (複数可)": "1",
         "2. Deel監視 (火木日)": "2",
@@ -416,7 +396,6 @@ if password == TEAM_PASSWORD:
             st.date_input("DATE", datetime.today(), key="picker_date", on_change=add_manual_target, label_visibility="collapsed")
         
         if st.session_state.manual_targets:
-            # リスト表示 (DataEditor)
             df = pd.DataFrame(st.session_state.manual_targets)
             df["削除"] = False
             df_disp = df[["削除", "display_date", "display_part"]].rename(columns={"display_date": "DATE", "display_part": "TIME"})
@@ -438,7 +417,6 @@ if password == TEAM_PASSWORD:
         today = datetime.now().date()
         valid = True
         
-        # モード別ターゲット生成
         if mode in ["1", "5"]:
             if not st.session_state.manual_targets:
                 st.error("日付を追加してください")
@@ -486,16 +464,12 @@ if password == TEAM_PASSWORD:
                                 link = item.get_attribute("href")
                                 is_deel = any(d in txt_name for d in TARGET_DEEL_FACILITIES)
                                 
-                                # 金額概算
                                 price_est = extract_price_estimate(txt_content)
-
-                                # ハイライト処理
                                 display_name = txt_name
-                                if mode in ["4", "5"]: # 全施設モード
+                                if mode in ["4", "5"]: 
                                     if HIGHLIGHT_TARGET_NAME in txt_name:
                                         display_name = "🔶 " + txt_name 
 
-                                # フィルタリング
                                 if (mode in ["1","2","3"] and is_deel) or (mode in ["4", "5"]):
                                     st.session_state.found_slots.append({
                                         "display": f"{jp_date} {txt_name}",
