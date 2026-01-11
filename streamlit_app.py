@@ -14,7 +14,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 
 # ==========================================
-# 設定と認証 (Secretsから読み込み)
+# 設定と認証
 # ==========================================
 try:
     TEAM_PASSWORD = st.secrets["team_password"]
@@ -29,7 +29,7 @@ except KeyError as e:
 
 # ★ターゲット施設
 TARGET_DEEL_FACILITIES = ["Sporthal Deel 1", "Sporthal Deel 2"]
-# ★ハイライト対象の施設名（部分一致用）
+# ★ハイライト対象
 HIGHLIGHT_TARGET_NAME = "De Scheg Sporthal Deel"
 TARGET_ACTIVITY_VALUE = "53" 
 LOGO_IMAGE = "High Ballers.png"
@@ -90,19 +90,24 @@ def take_error_snapshot(driver, container, error_message):
             st.image(filename)
     except: pass
 
-# --- 金額抽出用ロジック ---
-def extract_price_from_text(text):
-    # テキスト内から "€ 53,00" のようなパターンを探す
+# --- 金額抽出用ロジック（リスト表示用：概算） ---
+def extract_price_estimate(text):
+    # リスト上の "€ 25,52" を "€ 51.04" (2時間分) に変換して表示する
     try:
-        match = re.search(r"€\s*[\d,.]+", text)
+        # 数字部分を抽出 (カンマ対応)
+        match = re.search(r"€\s*([\d,.]+)", text)
         if match:
-            return match.group(0) # 見つかったら "€ 53,00" を返す
+            raw_val = match.group(1).replace('.', '').replace(',', '.') # 欧州形式をfloatへ
+            val_float = float(raw_val)
+            # ★重要: アプリは2時間予約固定なので、表示価格を2倍にする
+            total_val = val_float * 2
+            return f"€ {total_val:.2f}"
         return "-"
     except:
         return "-"
 
 # ---------------------------------------------------------
-# コールバック関数 (日付追加用)
+# コールバック関数
 # ---------------------------------------------------------
 def add_manual_target():
     if 'picker_date' in st.session_state and 'picker_part_label' in st.session_state:
@@ -135,12 +140,13 @@ def add_manual_target():
 def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, container):
     date_str = get_japanese_date_str(date_obj)
     target_time_text = get_target_time_text(date_obj)
-
     max_retries = 3
+    
     container.info(f"🚀 予約開始: {date_str} {facility_name}")
     
     for attempt in range(1, max_retries + 1):
         try:
+            # 1. 施設選択
             found_element = None
             items = driver.find_elements(By.CLASS_NAME, "item")
             for item in items:
@@ -155,6 +161,7 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             else:
                 raise Exception("対象施設が見つかりません")
 
+            # 2. 予約ボタンへ
             try:
                 reserve_btn = WebDriverWait(driver, 8).until(
                     EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Naar reserveren')]"))
@@ -165,14 +172,15 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
 
             container.write("  -> 入力中...")
             time.sleep(2)
+            
+            # 3. 2時間選択
             Select(driver.find_element(By.ID, "selectedTimeLength")).select_by_value("2")
-            time.sleep(2)
+            time.sleep(2) # 金額反映待ち
 
+            # 4. 時間枠選択
             time_select = Select(driver.find_element(By.ID, "customSelectedTimeSlot"))
             found_slot = False
             selected_text = ""
-            
-            # 部分一致検索
             for opt in time_select.options:
                 if target_time_text in opt.text:
                     time_select.select_by_value(opt.get_attribute("value"))
@@ -188,21 +196,35 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             time.sleep(1)
             Select(driver.find_element(By.ID, "SelectedActivity")).select_by_value(TARGET_ACTIVITY_VALUE)
             
+            # 5. 個人情報入力
             for key, val in USER_PROFILE.items():
                 if key == "HouseNumberAddition" and val == "": continue
                 driver.find_element(By.NAME, key).send_keys(val)
                 
+            # ★ここに修正追加: 正確な金額を hidden input から抽出
+            exact_price_str = "不明"
+            try:
+                # <input id="tarief" value="51,33"> を取得
+                tarief_input = driver.find_element(By.ID, "tarief")
+                raw_val = tarief_input.get_attribute("value") # "51,33"
+                if raw_val:
+                    exact_price_str = raw_val.replace(',', '.') # "51.33"
+            except:
+                pass
+
             chk = driver.find_element(By.NAME, "voorwaarden")
             if not chk.is_selected():
                 driver.execute_script("arguments[0].click();", chk)
 
+            # 6. 確定
             if is_dry_run:
-                container.success(f"🛑 【テスト成功】予約寸前で停止。")
+                container.success(f"🛑 【テスト成功】予約寸前で停止。 (予定金額: €{exact_price_str})")
                 return True
             else:
                 driver.find_element(By.ID, "ConfirmButton").click()
                 time.sleep(5)
-                container.success(f"✅ 予約確定！")
+                # ログに正確な金額を含める
+                container.success(f"✅ 予約確定！ (金額: €{exact_price_str})")
                 return True
 
         except Exception as e:
@@ -282,7 +304,7 @@ if password == TEAM_PASSWORD:
     if 'found_slots' not in st.session_state: st.session_state.found_slots = [] 
     if 'manual_targets' not in st.session_state: st.session_state.manual_targets = []
 
-    # --- モード1 & 5: 日付指定 ---
+    # --- 日付指定UI ---
     if mode in ["1", "5"]:
         with st.container(): 
             st.markdown("##### 📅 日付追加")
@@ -309,7 +331,7 @@ if password == TEAM_PASSWORD:
                     st.session_state.manual_targets = [st.session_state.manual_targets[i] for i in rows_to_keep]
                     st.rerun()
 
-    # --- Step 1: 検索ボタン ---
+    # --- Step 1: 検索 ---
     st.markdown("---")
     if st.button("🔍 Step 1: 空き検索スタート", type="primary", use_container_width=True):
         targets = []
@@ -366,12 +388,12 @@ if password == TEAM_PASSWORD:
                                 link = item.get_attribute("href")
                                 is_deel = any(d in txt_name for d in TARGET_DEEL_FACILITIES)
                                 
-                                # ★追加1: 金額抽出
-                                price_text = extract_price_from_text(txt_content)
+                                # ★修正: リスト用には「表示価格×2」で概算を表示 (高速化のため)
+                                price_est = extract_price_estimate(txt_content)
 
-                                # ★追加2: ソフトなハイライト (全施設リサーチ時のみ、名前の先頭にアイコン付与)
+                                # ★修正: 全施設リサーチ時のソフトなハイライト
                                 display_name = txt_name
-                                if mode == "4": # 全施設リサーチ
+                                if mode == "4": 
                                     if HIGHLIGHT_TARGET_NAME in txt_name:
                                         display_name = "🔸 " + txt_name
 
@@ -379,9 +401,9 @@ if password == TEAM_PASSWORD:
                                     st.session_state.found_slots.append({
                                         "display": f"{jp_date} {txt_name}",
                                         "date_obj": t['date'],
-                                        "facility": display_name, # 表示用(アイコン付き)
-                                        "raw_facility": txt_name, # 予約用(アイコンなし)
-                                        "price": price_text, # 金額
+                                        "facility": display_name, 
+                                        "raw_facility": txt_name,
+                                        "price": price_est,
                                         "part_id": t['part'],
                                         "url": link,
                                         "予約する": False 
@@ -396,16 +418,14 @@ if password == TEAM_PASSWORD:
             finally:
                 if driver: driver.quit()
 
-    # --- Step 2: 結果確認 & 一括予約 ---
+    # --- Step 2: 結果確認 & 予約 ---
     if st.session_state.found_slots:
         st.markdown(f"##### ✨ 空き発見: {len(st.session_state.found_slots)}件")
         st.info("予約する枠にチェックを入れてください")
         
         df_found = pd.DataFrame(st.session_state.found_slots)
-        
         df_found["日付"] = df_found["date_obj"].apply(get_japanese_date_str)
-        # ★追加: 金額も表示列に含める
-        df_found_disp = df_found[["予約する", "日付", "facility", "price"]].rename(columns={"facility": "施設名", "price": "金額"})
+        df_found_disp = df_found[["予約する", "日付", "facility", "price"]].rename(columns={"facility": "施設名", "price": "金額(2h)"})
 
         edited_found_df = st.data_editor(
             df_found_disp,
@@ -414,7 +434,7 @@ if password == TEAM_PASSWORD:
             column_config={
                 "予約する": st.column_config.CheckboxColumn(label="選択", width="small", default=False),
                 "施設名": st.column_config.TextColumn(width="medium"),
-                "金額": st.column_config.TextColumn(width="small"),
+                "金額(2h)": st.column_config.TextColumn(width="small"),
             }
         )
         
@@ -447,15 +467,13 @@ if password == TEAM_PASSWORD:
                         driver = create_driver()
                         total = len(selected_slots)
                         for idx, slot in enumerate(selected_slots):
-                            # ★修正: 予約時は元の施設名(raw_facility)を使用する
-                            facility_name_for_log = slot['facility'] # ログはアイコン付きで見やすく
-                            facility_name_for_booking = slot.get('raw_facility', slot['facility']) # 予約ロジックは正式名称で
-
-                            status.text(f"処理中 ({idx+1}/{total}): {facility_name_for_log}")
+                            # アイコンなしの正式名称を使う
+                            target_fac = slot.get('raw_facility', slot['facility'])
+                            status.text(f"処理中 ({idx+1}/{total}): {target_fac}")
                             prog.progress((idx + 1) / total)
                             
                             if search_on_site(driver, slot['date_obj'], slot['part_id']):
-                                if perform_booking(driver, facility_name_for_booking, slot['date_obj'], slot['url'], is_dry, st):
+                                if perform_booking(driver, target_fac, slot['date_obj'], slot['url'], is_dry, st):
                                     logs.append(f"✅ 成功: {slot['display']}")
                                 else:
                                     logs.append(f"❌ 失敗: {slot['display']}")
