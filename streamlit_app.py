@@ -11,9 +11,6 @@ from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-# Streamlit Cloudでの安定性向上のため追加推奨
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
 
 # ==========================================
 # 設定と認証 (Secretsから読み込み)
@@ -57,19 +54,21 @@ NL_MONTHS = {
 def create_driver():
     """ブラウザを起動する設定 (強力なステルスモード)"""
     options = Options()
+    # Streamlit Cloud特有の必須設定
     options.add_argument("--headless") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    
+    # ステルス設定
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     
-    # webdriver_managerを使用（安定性向上）
-    service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
+    # ★修正点: webdriver_managerを削除し、Seleniumの自動解決に任せる
+    return webdriver.Chrome(options=options)
 
 def get_dutch_date_str(date_obj):
     return f"{date_obj.day}-{NL_MONTHS[date_obj.month]}-{date_obj.year}"
@@ -129,17 +128,8 @@ def add_manual_target():
 # 予約実行関数
 # ---------------------------------------------------------
 def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, container):
-    # ★重要修正: 指定された時間帯(part)に応じた時間を狙うように変更が必要だが、
-    # 既存コードは「日曜なら朝、それ以外なら夜」固定になっている。
-    # モード1と5で「朝」などを指定した場合に対応するため、ここを少し柔軟にする。
-    
     date_str = get_japanese_date_str(date_obj)
-    
-    # 既存ロジック: 日曜=9:00, その他=20:00
     target_time_text = get_target_time_text(date_obj)
-    
-    # ★追加ロジック: もし手動追加データに詳細な時間指定が含まれていればそれを優先する
-    # (ここでは既存の安定性を優先し、target_time_textのロジックは変えないでおく)
 
     max_retries = 3
     container.info(f"🚀 予約開始: {date_str} {facility_name}")
@@ -274,7 +264,6 @@ password = st.text_input("パスワード", type="password")
 if password == TEAM_PASSWORD:
     st.success("認証OK")
 
-    # ★変更点1: モード5を追加
     mode_map = {
         "1. Deel日付指定 (複数可)": "1",
         "2. Deel監視 (火木日)": "2",
@@ -282,7 +271,6 @@ if password == TEAM_PASSWORD:
         "4. 全施設リサーチ": "4",
         "5. 日付指定 (複数可) 全施設": "5"
     }
-    # ラジオボタンを縦並びにして見やすくする
     mode_display = st.radio("検索モード", list(mode_map.keys())) 
     mode = mode_map[mode_display]
 
@@ -290,7 +278,6 @@ if password == TEAM_PASSWORD:
     if 'manual_targets' not in st.session_state: st.session_state.manual_targets = []
 
     # --- モード1 & 5: 日付指定 ---
-    # ★変更点2: モード1または5の時に表示する
     if mode in ["1", "5"]:
         with st.container(): 
             st.markdown("##### 📅 日付追加")
@@ -299,7 +286,6 @@ if password == TEAM_PASSWORD:
                 part_opts = {"Avond (夜)": "3", "Ochtend (朝)": "1", "Middag (昼)": "2"}
                 st.selectbox("時間", list(part_opts.keys()), key="picker_part_label", label_visibility="collapsed")
             with col_p2:
-                # 日付追加ロジックは元の正常動作するコード（ボタン式ではなくon_change式）を採用
                 st.date_input("日付", datetime.today(), key="picker_date", on_change=add_manual_target, label_visibility="collapsed")
             
             if st.session_state.manual_targets:
@@ -325,7 +311,6 @@ if password == TEAM_PASSWORD:
         today = datetime.now().date()
         valid = True
         
-        # ★変更点3: モードごとのターゲット設定
         if mode in ["1", "5"]:
             if not st.session_state.manual_targets:
                 st.error("日付を追加してください")
@@ -375,9 +360,6 @@ if password == TEAM_PASSWORD:
                                 link = item.get_attribute("href")
                                 is_deel = any(d in txt for d in TARGET_DEEL_FACILITIES)
                                 
-                                # ★重要: 検索結果フィルタリングの条件分岐
-                                # モード1,2,3 -> Deelのみ追加
-                                # モード4,5   -> 全施設追加 (フィルタなし)
                                 if (mode in ["1","2","3"] and is_deel) or (mode in ["4", "5"]):
                                     st.session_state.found_slots.append({
                                         "display": f"{jp_date} {txt}",
@@ -404,7 +386,6 @@ if password == TEAM_PASSWORD:
         
         df_found = pd.DataFrame(st.session_state.found_slots)
         
-        # 表示列の整理
         df_found["日付"] = df_found["date_obj"].apply(get_japanese_date_str)
         df_found_disp = df_found[["予約する", "日付", "facility"]].rename(columns={"facility": "施設名"})
 
@@ -418,7 +399,6 @@ if password == TEAM_PASSWORD:
             }
         )
         
-        # チェックされた行だけを抽出
         selected_indices = edited_found_df[edited_found_df["予約する"] == True].index
         selected_slots = [st.session_state.found_slots[i] for i in selected_indices]
         
