@@ -3,6 +3,7 @@ import time
 import smtplib
 import os
 import pandas as pd
+import re
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 from selenium import webdriver
@@ -15,7 +16,6 @@ from selenium.webdriver.chrome.options import Options
 # ==========================================
 # 設定と認証 (Secretsから読み込み)
 # ==========================================
-
 try:
     TEAM_PASSWORD = st.secrets["team_password"]
     BOOKING_PASSWORD = st.secrets["booking_password"]
@@ -29,9 +29,9 @@ except KeyError as e:
 
 # ★ターゲット施設
 TARGET_DEEL_FACILITIES = ["Sporthal Deel 1", "Sporthal Deel 2"]
-TARGET_ACTIVITY_VALUE = "53"       # Zaalvoetbal
-
-# ★画像ファイル名
+# ★ハイライト対象の施設名（部分一致用）
+HIGHLIGHT_TARGET_NAME = "De Scheg Sporthal Deel"
+TARGET_ACTIVITY_VALUE = "53" 
 LOGO_IMAGE = "High Ballers.png"
 
 # ページ設定
@@ -52,22 +52,16 @@ NL_MONTHS = {
 }
 
 def create_driver():
-    """ブラウザを起動する設定 (強力なステルスモード)"""
     options = Options()
-    # Streamlit Cloud特有の必須設定
     options.add_argument("--headless") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    
-    # ステルス設定
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
-    
-    # ★修正点: webdriver_managerを削除し、Seleniumの自動解決に任せる
     return webdriver.Chrome(options=options)
 
 def get_dutch_date_str(date_obj):
@@ -95,6 +89,17 @@ def take_error_snapshot(driver, container, error_message):
             st.error(f"エラー: {error_message}")
             st.image(filename)
     except: pass
+
+# --- 金額抽出用ロジック ---
+def extract_price_from_text(text):
+    # テキスト内から "€ 53,00" のようなパターンを探す
+    try:
+        match = re.search(r"€\s*[\d,.]+", text)
+        if match:
+            return match.group(0) # 見つかったら "€ 53,00" を返す
+        return "-"
+    except:
+        return "-"
 
 # ---------------------------------------------------------
 # コールバック関数 (日付追加用)
@@ -356,15 +361,27 @@ if password == TEAM_PASSWORD:
                         items = driver.find_elements(By.CLASS_NAME, "item")
                         for item in items:
                             try:
-                                txt = item.find_element(By.CLASS_NAME, "name").text.replace("\n", " ")
+                                txt_content = item.text.replace("\n", " ")
+                                txt_name = item.find_element(By.CLASS_NAME, "name").text.replace("\n", " ")
                                 link = item.get_attribute("href")
-                                is_deel = any(d in txt for d in TARGET_DEEL_FACILITIES)
+                                is_deel = any(d in txt_name for d in TARGET_DEEL_FACILITIES)
                                 
+                                # ★追加1: 金額抽出
+                                price_text = extract_price_from_text(txt_content)
+
+                                # ★追加2: ソフトなハイライト (全施設リサーチ時のみ、名前の先頭にアイコン付与)
+                                display_name = txt_name
+                                if mode == "4": # 全施設リサーチ
+                                    if HIGHLIGHT_TARGET_NAME in txt_name:
+                                        display_name = "🔸 " + txt_name
+
                                 if (mode in ["1","2","3"] and is_deel) or (mode in ["4", "5"]):
                                     st.session_state.found_slots.append({
-                                        "display": f"{jp_date} {txt}",
+                                        "display": f"{jp_date} {txt_name}",
                                         "date_obj": t['date'],
-                                        "facility": txt,
+                                        "facility": display_name, # 表示用(アイコン付き)
+                                        "raw_facility": txt_name, # 予約用(アイコンなし)
+                                        "price": price_text, # 金額
                                         "part_id": t['part'],
                                         "url": link,
                                         "予約する": False 
@@ -387,7 +404,8 @@ if password == TEAM_PASSWORD:
         df_found = pd.DataFrame(st.session_state.found_slots)
         
         df_found["日付"] = df_found["date_obj"].apply(get_japanese_date_str)
-        df_found_disp = df_found[["予約する", "日付", "facility"]].rename(columns={"facility": "施設名"})
+        # ★追加: 金額も表示列に含める
+        df_found_disp = df_found[["予約する", "日付", "facility", "price"]].rename(columns={"facility": "施設名", "price": "金額"})
 
         edited_found_df = st.data_editor(
             df_found_disp,
@@ -395,7 +413,8 @@ if password == TEAM_PASSWORD:
             use_container_width=True,
             column_config={
                 "予約する": st.column_config.CheckboxColumn(label="選択", width="small", default=False),
-                "施設名": st.column_config.TextColumn(width="large")
+                "施設名": st.column_config.TextColumn(width="medium"),
+                "金額": st.column_config.TextColumn(width="small"),
             }
         )
         
@@ -428,11 +447,15 @@ if password == TEAM_PASSWORD:
                         driver = create_driver()
                         total = len(selected_slots)
                         for idx, slot in enumerate(selected_slots):
-                            status.text(f"処理中 ({idx+1}/{total}): {slot['facility']}")
+                            # ★修正: 予約時は元の施設名(raw_facility)を使用する
+                            facility_name_for_log = slot['facility'] # ログはアイコン付きで見やすく
+                            facility_name_for_booking = slot.get('raw_facility', slot['facility']) # 予約ロジックは正式名称で
+
+                            status.text(f"処理中 ({idx+1}/{total}): {facility_name_for_log}")
                             prog.progress((idx + 1) / total)
                             
                             if search_on_site(driver, slot['date_obj'], slot['part_id']):
-                                if perform_booking(driver, slot['facility'], slot['date_obj'], slot['url'], is_dry, st):
+                                if perform_booking(driver, facility_name_for_booking, slot['date_obj'], slot['url'], is_dry, st):
                                     logs.append(f"✅ 成功: {slot['display']}")
                                 else:
                                     logs.append(f"❌ 失敗: {slot['display']}")
