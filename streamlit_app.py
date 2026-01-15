@@ -30,24 +30,26 @@ LOGO_IMAGE = "High Ballers.png"
 st.set_page_config(
     page_title="High Ballers AI", 
     page_icon="⚽",
-    layout="centered",
+    layout="centered", # PCでもスマホでも中央寄せで見やすくする
     initial_sidebar_state="collapsed"
 )
 
 # ==========================================
-# 🎨 UIデザイン (Waymo風 + モバイル完全対応)
+# 🎨 UIデザイン (レスポンシブ対応版)
 # ==========================================
 st.markdown("""
     <style>
-    /* --- 基本設定 (config.tomlと合わせて白背景を強制) --- */
+    /* --- 基本設定 --- */
     .stApp {
         background-color: #FFFFFF !important;
         color: #111827 !important;
     }
 
-    /* --- ヘッダー --- */
+    /* --- テキスト設定 --- */
+    h1, h2, h3, p, div, label, span {
+        color: #111827 !important;
+    }
     .header-text {
-        font-size: 22px;
         font-weight: 900;
         color: #111827;
         letter-spacing: -0.5px;
@@ -59,19 +61,17 @@ st.markdown("""
         margin-bottom: 20px;
     }
 
-    /* --- カードデザイン (枠線・角丸) --- */
+    /* --- カードデザイン (共通) --- */
     div[data-testid="stForm"], div[data-baseweb="select"] > div, .stDataEditor {
-        border-radius: 16px !important;
+        border-radius: 12px !important;
         border: 1px solid #E5E7EB !important;
         background-color: #F9FAFB !important;
         box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
     }
     
-    /* --- 入力フィールド (スマホでの視認性とタップしやすさ向上) --- */
+    /* --- 入力フィールド (共通) --- */
     .stTextInput input, .stDateInput input {
-        border-radius: 12px !important;
-        height: 50px !important;
-        font-size: 16px !important; /* iOSのズーム防止 */
+        border-radius: 8px !important;
         border: 2px solid #E5E7EB !important;
         color: #111827 !important;
         background-color: #FFFFFF !important;
@@ -80,11 +80,10 @@ st.markdown("""
         border-color: #2563EB !important;
     }
 
-    /* --- ボタン (ピル型・青) --- */
+    /* --- ボタン基本設定 (PC向けデフォルト) --- */
     .stButton > button {
-        width: 100%;
-        border-radius: 50px !important;
-        padding: 14px 24px !important;
+        border-radius: 8px !important;
+        padding: 10px 24px !important; /* PCは少し控えめなパディング */
         font-weight: 700 !important;
         font-size: 16px !important;
         border: none !important;
@@ -92,27 +91,51 @@ st.markdown("""
         color: #FFFFFF !important;
         box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2) !important;
         margin-top: 10px;
+        transition: all 0.2s ease;
     }
-    .stButton > button:active {
+    .stButton > button:hover {
         background-color: #1D4ED8 !important;
-        transform: scale(0.98);
+        box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3) !important;
+        transform: translateY(-1px);
     }
 
-    /* --- カレンダー (スマホで見切れないよう最前面へ) --- */
+    /* =========================================
+       📱 スマホ・タブレット向けレスポンシブ設定 (幅768px以下)
+       ========================================= */
+    @media only screen and (max-width: 768px) {
+        /* ヘッダーサイズ調整 */
+        .header-text {
+            font-size: 20px;
+        }
+        
+        /* 入力欄をタップしやすく高くする */
+        .stTextInput input, .stDateInput input {
+            height: 50px !important;
+            font-size: 16px !important;
+        }
+
+        /* ボタンを画面幅いっぱいにし、指で押しやすくする */
+        .stButton > button {
+            width: 100%;
+            padding: 14px 24px !important;
+            border-radius: 50px !important; /* スマホはピル型が押しやすい */
+        }
+        
+        /* コンテナの余白調整 */
+        .block-container {
+            padding-top: 2rem !important;
+            padding-bottom: 10rem !important;
+        }
+        
+        /* カードの角丸を少し大きく */
+        div[data-testid="stForm"] {
+            border-radius: 16px !important;
+        }
+    }
+    
+    /* カレンダー表示位置調整 */
     div[data-baseweb="popover"], div[data-baseweb="calendar"] {
         z-index: 99999 !important;
-    }
-    
-    /* --- 下部余白 (カレンダー用) --- */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 15rem !important;
-        max-width: 100% !important;
-    }
-    
-    /* --- テキスト色強制 --- */
-    h1, h2, h3, p, div, label, span {
-        color: #111827 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -158,7 +181,7 @@ def calculate_site_weekday(date_obj):
     return str((date_obj.weekday() + 1) % 7)
 
 def get_target_time_text(date_obj):
-    # 【修正】土(5)・日(6)は朝(09:00)、それ以外は夜(20:00)
+    # 土(5)・日(6)は朝(09:00)、それ以外は夜(20:00)
     if date_obj.weekday() in [5, 6]:
         return "09:00"
     else:
@@ -227,7 +250,7 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
     date_str = get_japanese_date_str(date_obj)
     target_start_time = get_target_time_text(date_obj) # "09:00" or "20:00"
 
-    # 【追加】終了時間を計算 (開始時間 + 2時間)
+    # 終了時間を計算 (開始時間 + 2時間)
     start_dt = datetime.strptime(target_start_time, "%H:%M")
     end_dt = start_dt + timedelta(hours=2)
     target_end_time = end_dt.strftime("%H:%M") # "11:00" or "22:00"
@@ -265,7 +288,7 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             Select(driver.find_element(By.ID, "selectedTimeLength")).select_by_value("2")
             time.sleep(1.5)
 
-            # 【修正】時間枠の選択ロジックを厳密化
+            # --- 時間枠の選択ロジック (厳密化版) ---
             time_select = Select(driver.find_element(By.ID, "customSelectedTimeSlot"))
             found_slot = False
             selected_text = ""
@@ -301,7 +324,7 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                 driver.execute_script("arguments[0].click();", chk)
 
             if is_dry_run:
-                # 【追加】テストモード時の確認用スクショ
+                # --- テストモード時の確認用スクショ ---
                 try:
                     time_element = driver.find_element(By.ID, "customSelectedTimeSlot")
                     driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", time_element)
