@@ -118,7 +118,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 🏎️ ロジック関数群 (インデント修正済み)
+# 🏎️ ロジック関数群
 # ==========================================
 
 NL_MONTHS = {
@@ -158,8 +158,11 @@ def calculate_site_weekday(date_obj):
     return str((date_obj.weekday() + 1) % 7)
 
 def get_target_time_text(date_obj):
-    # 日曜は朝(09:00)、それ以外は夜(20:00)
-    return "09:00" if date_obj.weekday() == 6 else "20:00" 
+    # 【修正】土(5)・日(6)は朝(09:00)、それ以外は夜(20:00)
+    if date_obj.weekday() in [5, 6]:
+        return "09:00"
+    else:
+        return "20:00"
 
 def take_error_snapshot(driver, container, error_message):
     try:
@@ -222,7 +225,13 @@ def add_manual_target():
 # ---------------------------------------------------------
 def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, container):
     date_str = get_japanese_date_str(date_obj)
-    target_time_text = get_target_time_text(date_obj)
+    target_start_time = get_target_time_text(date_obj) # "09:00" or "20:00"
+
+    # 【追加】終了時間を計算 (開始時間 + 2時間)
+    start_dt = datetime.strptime(target_start_time, "%H:%M")
+    end_dt = start_dt + timedelta(hours=2)
+    target_end_time = end_dt.strftime("%H:%M") # "11:00" or "22:00"
+
     max_retries = 3
     
     container.info(f"🚀 予約開始: {date_str} {facility_name}")
@@ -256,18 +265,21 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             Select(driver.find_element(By.ID, "selectedTimeLength")).select_by_value("2")
             time.sleep(1.5)
 
+            # 【修正】時間枠の選択ロジックを厳密化
             time_select = Select(driver.find_element(By.ID, "customSelectedTimeSlot"))
             found_slot = False
             selected_text = ""
             for opt in time_select.options:
-                if target_time_text in opt.text:
+                text = opt.text.strip()
+                # 開始時間で始まり、かつ終了時間が含まれる場合のみ選択
+                if text.startswith(target_start_time) and target_end_time in text:
                     time_select.select_by_value(opt.get_attribute("value"))
-                    selected_text = opt.text
+                    selected_text = text
                     found_slot = True
                     break
             
             if not found_slot:
-                container.warning(f"  -> ⚠️ {target_time_text}〜の枠が埋まっています")
+                container.warning(f"  -> ⚠️ {target_start_time}〜{target_end_time} の枠が埋まっています")
                 return False 
             
             container.write(f"  -> 🕒 枠確保: {selected_text}")
@@ -289,6 +301,18 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                 driver.execute_script("arguments[0].click();", chk)
 
             if is_dry_run:
+                # 【追加】テストモード時の確認用スクショ
+                try:
+                    time_element = driver.find_element(By.ID, "customSelectedTimeSlot")
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", time_element)
+                    time.sleep(0.5)
+                except: pass
+
+                timestamp = datetime.now().strftime("%H%M%S")
+                filename = f"dry_run_check_{timestamp}.png"
+                driver.save_screenshot(filename)
+                
+                container.image(filename, caption=f"📸 最終確認: {target_start_time}〜{target_end_time} が選択されているか確認してください")
                 container.success(f"🛑 【テスト成功】予約寸前で停止 (金額: €{exact_price_str})")
                 return True
             else:
@@ -309,14 +333,13 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
                 return False
 
 # ---------------------------------------------------------
-# 検索処理 (※ここが修正箇所: インデントを解除し、強制リロードを追加)
+# 検索処理
 # ---------------------------------------------------------
 def search_on_site(driver, date_obj, part_id):
     target_url = "https://avo.hta.nl/uithoorn/"
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            # 前回の画面が残っている可能性が高いため、必ずトップへ移動する
             driver.get(target_url)
             
             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "SearchButton")))
@@ -561,7 +584,6 @@ if password == TEAM_PASSWORD:
                             status.markdown(f"**実行中...** `{target_fac}` ({idx+1}/{total})")
                             prog.progress((idx + 1) / total)
                             
-                            # 関数呼び出しが確実に通るように修正済み
                             if search_on_site(driver, slot['date_obj'], slot['part_id']):
                                 if perform_booking(driver, target_fac, slot['date_obj'], slot['url'], is_dry, st):
                                     logs.append(f"✅ 成功: {slot['display']}")
