@@ -17,7 +17,12 @@ from selenium.webdriver.chrome.options import Options
 try:
     TEAM_PASSWORD = st.secrets["team_password"]
     BOOKING_PASSWORD = st.secrets["booking_password"]
-    USER_PROFILE = st.secrets["user_profile"]
+    # 複数プロフィール対応: 新形式 user_profiles を優先し、
+    # 無ければ旧形式 user_profile を「デフォルト」1人として扱う(後方互換)
+    if "user_profiles" in st.secrets:
+        USER_PROFILES = {name: dict(profile) for name, profile in st.secrets["user_profiles"].items()}
+    else:
+        USER_PROFILES = {"デフォルト": dict(st.secrets["user_profile"])}
 except Exception:
     st.error("⚠️ Secrets Error")
     st.stop()
@@ -246,7 +251,7 @@ def add_manual_target():
 # ---------------------------------------------------------
 # 予約実行処理
 # ---------------------------------------------------------
-def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, container):
+def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, container, profile):
     date_str = get_japanese_date_str(date_obj)
     target_start_time = get_target_time_text(date_obj) # "09:00" or "20:00"
 
@@ -308,7 +313,7 @@ def perform_booking(driver, facility_name, date_obj, target_url, is_dry_run, con
             container.write(f"  -> 🕒 枠確保: {selected_text}")
             Select(driver.find_element(By.ID, "SelectedActivity")).select_by_value(TARGET_ACTIVITY_VALUE)
             
-            for key, val in USER_PROFILE.items():
+            for key, val in profile.items():
                 if key == "HouseNumberAddition" and val == "": continue
                 driver.find_element(By.NAME, key).send_keys(val)
                 
@@ -576,7 +581,11 @@ if password == TEAM_PASSWORD:
         if selected_slots:
             st.markdown("---")
             st.markdown("#### 🔐 予約実行")
-            
+
+            # 予約者の選択 (表示は名前のみ。プロフィールの中身はUI/ログに出さない)
+            st.selectbox("👤 予約者を選択", options=list(USER_PROFILES.keys()), key="selected_booker")
+            st.caption(f"この内容で {st.session_state.selected_booker} さんとして予約します")
+
             c_run1, c_run2 = st.columns([1, 2])
             with c_run1:
                 run_mode = st.radio("実行モード", ["✅ テスト", "🔥 本番"], label_visibility="collapsed")
@@ -594,6 +603,8 @@ if password == TEAM_PASSWORD:
                 if not ready:
                     st.error("パスワード認証エラー")
                 else:
+                    booker_name = st.session_state.selected_booker
+                    selected_profile = USER_PROFILES[booker_name]
                     logs = []
                     status = st.empty()
                     prog = st.progress(0)
@@ -606,10 +617,10 @@ if password == TEAM_PASSWORD:
                             target_fac = slot.get('raw_facility', slot['facility'])
                             status.markdown(f"**実行中...** `{target_fac}` ({idx+1}/{total})")
                             prog.progress((idx + 1) / total)
-                            
+
                             if search_on_site(driver, slot['date_obj'], slot['part_id']):
-                                if perform_booking(driver, target_fac, slot['date_obj'], slot['url'], is_dry, st):
-                                    logs.append(f"✅ 成功: {slot['display']}")
+                                if perform_booking(driver, target_fac, slot['date_obj'], slot['url'], is_dry, st, selected_profile):
+                                    logs.append(f"✅ 成功: {slot['display']} by {booker_name}")
                                 else:
                                     logs.append(f"❌ 失敗: {slot['display']}")
                             else:
