@@ -414,20 +414,27 @@ with col_title:
         </div>
     """, unsafe_allow_html=True)
 
-password = st.text_input("パスワード", type="password")
+# --- 総当たり対策 (失敗回数カウント + 失敗時遅延) ---
+# ※ st.session_state によるセッション単位の簡易対策です。
+#    ページを再読み込み(リロード)するとカウントはリセットされ、ロックも解除されます。
+if 'auth_fail_count' not in st.session_state:
+    st.session_state.auth_fail_count = 0
 
-if password == TEAM_PASSWORD:
+is_locked = st.session_state.auth_fail_count >= 3
+
+if is_locked:
+    # ロック状態: 入力欄を出さず、一致判定そのものを行わない
+    password = ""
+    st.warning("試行回数が上限に達しました。しばらく待ってからページを再読み込みしてください")
+else:
+    password = st.text_input("パスワード", type="password")
+
+if (not is_locked) and password == TEAM_PASSWORD:
+    st.session_state.auth_fail_count = 0  # 認証成功でリセット
     
-    st.markdown("#### ⚙️ SEARCH MODE")
-    mode_map = {
-        "1. Deel日付指定 (複数可)": "1",
-        "2. Deel監視 (火木日)": "2",
-        "3. Deel平日夜一括": "3",
-        "4. 全施設リサーチ": "4",
-        "5. 日付指定 (複数可) 全施設": "5"
-    }
-    mode_display = st.selectbox("検索モードを選択", list(mode_map.keys()), label_visibility="collapsed") 
-    mode = mode_map[mode_display]
+    # 検索モードは「日付指定 (複数可) 全施設」(旧モード5) に固定。
+    # モード選択UIは非表示化 (他モードの分岐ロジックは下に残っているが到達しない)
+    mode = "5"
 
     if 'found_slots' not in st.session_state: st.session_state.found_slots = [] 
     if 'manual_targets' not in st.session_state: st.session_state.manual_targets = []
@@ -636,4 +643,8 @@ if password == TEAM_PASSWORD:
                         if driver: driver.quit()
 
 else:
-    if password: st.error("パスワードが違います")
+    # 入力があって不一致のときのみカウント+遅延 (未入力・ロック中は何もしない)
+    if (not is_locked) and password:
+        st.session_state.auth_fail_count += 1
+        time.sleep(2)
+        st.error("パスワードが違います")
